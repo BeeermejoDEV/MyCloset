@@ -544,7 +544,7 @@ Cada `push` a `main` publica `dist/` automáticamente (`.github/workflows/pages.
 1. En github.com → **New repository** → nombre `MyCloset`, **Public** (Pages gratis exige público; el código es público, tus datos no) y sin README.
 2. En la carpeta `MyCloset`:
    ```bash
-   git remote add origin https://github.com/BeeermejoDev/MyCloset.git
+   git remote add origin git@github.com:BeeermejoDEV/MyCloset.git
    git push -u origin main
    ```
 3. En el repo → **Settings → Pages → Source: GitHub Actions**. Si la primera publicación falló por esto, en **Actions** vuelve a lanzarla («Re-run»).
