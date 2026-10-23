@@ -1,5 +1,6 @@
 // Servidor estático mínimo para probar MyCloset en local y desde el iPhone (misma wifi).
-// Uso: node MyCloset/serve.mjs  →  http://localhost:5190
+// Uso: node MyCloset/serve.mjs  →  http://localhost:5190 (solo este Mac)
+//      HOST=0.0.0.0 node MyCloset/serve.mjs  →  también desde otros dispositivos de tu wifi
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { networkInterfaces } from 'node:os';
@@ -8,6 +9,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), 'dist');
 const port = Number(process.env.PORT) || 5190;
+// Por defecto solo escucha en este ordenador; abrirlo a la wifi es opcional.
+const host = process.env.HOST || '127.0.0.1';
 const types = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.json': 'application/json',
@@ -26,8 +29,9 @@ createServer(async (req, res) => {
   } catch {
     res.writeHead(404).end('No encontrado');
   }
-}).listen(port, '0.0.0.0', () => {
+}).listen(port, host, () => {
   console.log(`MyCloset en http://localhost:${port}`);
+  if (host !== '0.0.0.0') return;
   for (const nets of Object.values(networkInterfaces())) {
     for (const n of nets || []) if (n.family === 'IPv4' && !n.internal) console.log(`Desde el iPhone (misma wifi): http://${n.address}:${port}`);
   }

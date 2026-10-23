@@ -529,7 +529,7 @@ No hace falta responder todas estas preguntas en un único mensaje. Se podrán c
 - Este documento es la especificación inicial para preparar el MVP.
 - **23/10/2026: MVP implementado** en `dist/` (HTML + CSS + JS sin dependencias, datos en IndexedDB). Aplica las propuestas de este documento tal cual: web móvil, 3 pestañas + Ajustes, categoría + tipo + color opcional, foto opcional, archivado, mínimo 2 prendas por conjunto, importar = reemplazar.
 - Probado en navegador (vista móvil) con datos de prueba: criterios 1-16 OK. Pendiente: criterio 17 y acceso desde icono en un iPhone real.
-- Arrancar en local: `node MyCloset/serve.mjs` → `http://localhost:5190` (y la IP de la red local para abrirlo desde el iPhone con la misma wifi).
+- Arrancar en local: `node MyCloset/serve.mjs` → `http://localhost:5190` (solo este Mac). Para probar desde el iPhone en la misma wifi: `HOST=0.0.0.0 node MyCloset/serve.mjs`.
 - **Decidido (23/10/2026):** alojamiento en **GitHub Pages** y datos **solo en el iPhone** (IndexedDB), con copias manuales desde Ajustes. Sin sincronización entre dispositivos.
 - La app funciona sin conexión (service worker `dist/sw.js`, primero red y, si no hay, copia guardada).
 - Los datos de prueba (`datos-prueba/`) no están en `dist/` y nunca se publican; el botón «Cargar datos de prueba» solo aparece en local.
