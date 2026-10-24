@@ -49,6 +49,8 @@ const ICON = {
   link: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>',
   edit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>',
   camera: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+  filter: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>',
+  wash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 9h17l-1.7 10.5a1.5 1.5 0 0 1-1.5 1.3H6.7a1.5 1.5 0 0 1-1.5-1.3z"/><path d="M8 9l2.5-5M16 9l-2.5-5M9 13v4M15 13v4M12 13v4"/></svg>',
   archive: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 4.5h17v4h-17zM5 8.5v11h14v-11M10 12h4"/></svg>',
 };
 
@@ -149,7 +151,10 @@ function relatedIds(id) {
 }
 const outfitGarments = (o) => o.garmentIds.map((id) => S.garments.get(id)).filter(Boolean);
 const outfitsWith = (id) => [...S.outfits.values()].filter((o) => o.garmentIds.includes(id)).sort(byName);
-const isAvailable = (o) => outfitGarments(o).length === o.garmentIds.length && outfitGarments(o).every((g) => !g.archived);
+const hasArchived = (o) => outfitGarments(o).length !== o.garmentIds.length || outfitGarments(o).some((g) => g.archived);
+const toWash = (o) => outfitGarments(o).filter((g) => g.laundry);
+const isAvailable = (o) => !hasArchived(o) && !toWash(o).length;
+const laundryGarments = () => [...S.garments.values()].filter((g) => g.laundry && !g.archived).sort(byCatThenName);
 const matches = (g, q) => !q || norm(g.name).includes(q) || norm(g.type).includes(q) || norm(g.color).includes(q);
 
 /* ---------- Piezas de interfaz ---------- */
@@ -163,7 +168,7 @@ function thumb(g, cls = '') {
 function garmentCard(g) {
   return `<a class="g-card" href="#/prenda/${g.id}">
     ${thumb(g)}
-    ${g.archived ? '<span class="badge badge-muted">Archivada</span>' : ''}
+    ${g.archived ? '<span class="badge badge-muted">Archivada</span>' : g.laundry ? '<span class="badge badge-wash">Para lavar</span>' : ''}
     <span class="g-name">${esc(g.name)}</span>
     <span class="g-sub">${esc(g.type)}${g.color ? ' · ' + esc(g.color) : ''}</span>
   </a>`;
@@ -193,7 +198,7 @@ function outfitCard(o) {
     ${collage(o)}
     <span class="o-name">${esc(o.name)}</span>
     <span class="o-items">${gs.map((g) => esc(g.name)).join(' · ')}</span>
-    ${isAvailable(o) ? '' : '<span class="badge">Con ropa archivada</span>'}
+    ${hasArchived(o) ? '<span class="badge">Con ropa archivada</span>' : toWash(o).length ? '<span class="badge badge-wash">Para lavar</span>' : ''}
   </a>`;
 }
 
@@ -319,6 +324,7 @@ function createPicker({ candidates, selected, extra = [], initialFilter = 'all',
 function viewToday() {
   const all = [...S.outfits.values()];
   const avail = all.filter(isAvailable).sort(byName);
+  const waiting = all.filter((o) => !hasArchived(o) && toWash(o).length).length;
   let html;
   if (!S.garments.size) {
     html = emptyState({ title: 'Añade tu primera prenda', text: 'Empieza registrando la ropa que de verdad usas. La foto es opcional: puedes ponerla después.', href: '#/prenda/nueva', label: 'Añadir prenda' });
@@ -332,10 +338,16 @@ function viewToday() {
       label: activeGarments().length >= 2 ? 'Crear mi primer conjunto' : 'Añadir prenda',
     });
   } else if (!avail.length) {
-    html = emptyState({ icon: ICON.layers, title: 'Ningún conjunto disponible', text: 'Todos tus conjuntos llevan alguna prenda archivada. Restaura esa prenda o crea un conjunto nuevo.', href: '#/conjuntos', label: 'Ver conjuntos guardados' });
+    html = waiting
+      ? emptyState({ icon: ICON.wash, title: 'Todo está para lavar', text: 'Tus conjuntos llevan alguna prenda que está para lavar. Cuando la marques como limpia, vuelven a aparecer aquí.', href: '#/cesto', label: 'Ver lo que hay para lavar' })
+      : emptyState({ icon: ICON.layers, title: 'Ningún conjunto disponible', text: 'Todos tus conjuntos llevan alguna prenda archivada. Restaura esa prenda o crea un conjunto nuevo.', href: '#/conjuntos', label: 'Ver conjuntos guardados' });
   } else {
-    html = `<p class="lead">${avail.length === 1 ? 'Tienes 1 conjunto listo para ponerte.' : `Tienes ${avail.length} conjuntos listos para ponerte.`}</p>
+    html = `<p class="lead">${avail.length === 1 ? 'Tienes 1 conjunto listo para ponerte.' : `Tienes ${avail.length} conjuntos listos para ponerte.`}${waiting ? ` ${waiting === 1 ? '1 espera' : `${waiting} esperan`} a la colada.` : ''}</p>
       <div class="o-grid">${avail.map(outfitCard).join('')}</div>`;
+  }
+  const wash = laundryGarments();
+  if (wash.length) {
+    html = `<a class="list-link" href="#/cesto" style="margin-bottom:16px">${ICON.wash}<b style="flex:1">Para lavar</b><span>${plural(wash.length, 'prenda', 'prendas')}</span></a>` + html;
   }
   if (S.garments.size) {
     html += `<p class="hint" style="margin-top:22px">¿Ya sabes qué prenda quieres llevar hoy? <a href="#/ropa">Búscala en Mi ropa</a> y mira sus conjuntos.</p>`;
@@ -376,7 +388,8 @@ function folderOf(g) {
 const typeOrder = (g) => CAT[g.category]?.types.indexOf(g.type) ?? 99;
 const byTypeThenName = (a, b) => typeOrder(a) - typeOrder(b) || collator.compare(a.name, b.name);
 const folderGarments = (f) => activeGarments().filter((g) => folderOf(g) === f).sort(byTypeThenName);
-const typesIn = (gs) => [...new Set(gs.map((g) => g.type))];
+// Subtipos presentes, en el orden del formulario («Otro» al final).
+const typesIn = (gs) => [...new Map(gs.map((g) => [g.type, g])).values()].sort((a, b) => typeOrder(a) - typeOrder(b)).map((g) => g.type);
 
 function newGarmentHref(category, type) {
   const p = new URLSearchParams();
@@ -393,16 +406,53 @@ const folderHead = (href, label, n) => `<div class="section-head">
     <a class="folder-link" href="${href}"><h2>${esc(label)} <span class="count">${n}</span></h2>${CHEVRON}</a>
   </div>`;
 
-const wardrobeState = { q: '', cat: 'all' };
+// Filtros de «Mi ropa»: tipo (carpetas), color (familias) y pendientes. Se combinan entre apartados (Y)
+// y dentro de un apartado basta con cumplir uno (O).
+const COLOR_FAMILY = Object.fromEntries(COLOR_GROUPS.flatMap(([label, list]) => list.map(([name]) => [name, label])));
+const familyLabel = (label) => (label === 'Otros' ? 'Multicolor' : label);
+const PENDING = [
+  { id: 'wash', label: 'Para lavar', test: (g) => g.laundry },
+  { id: 'nophoto', label: 'Sin foto', test: (g) => !g.imageId },
+  { id: 'nocompat', label: 'Sin combinaciones', test: (g) => relatedIds(g.id).size === 0 },
+  { id: 'nooutfit', label: 'En ningún conjunto', test: (g) => outfitsWith(g.id).length === 0 },
+];
+const PENDING_BY_ID = Object.fromEntries(PENDING.map((p) => [p.id, p]));
+
+const wardrobeState = { q: '', folders: new Set(), colors: new Set(), pending: new Set() };
+const activeFilterCount = () => wardrobeState.folders.size + wardrobeState.colors.size + wardrobeState.pending.size;
+
+function passesFilters(g) {
+  const st = wardrobeState;
+  if (st.folders.size && !st.folders.has(folderOf(g).id)) return false;
+  if (st.colors.size && !st.colors.has(COLOR_FAMILY[g.color])) return false;
+  for (const id of st.pending) if (!PENDING_BY_ID[id].test(g)) return false;
+  return true;
+}
+
+const filteredGarments = () => {
+  const q = norm(wardrobeState.q.trim());
+  return activeGarments().filter((g) => matches(g, q) && passesFilters(g));
+};
 
 function wardrobeResults() {
-  const q = norm(wardrobeState.q.trim());
-  const list = activeGarments().filter((g) => (wardrobeState.cat === 'all' || g.category === wardrobeState.cat) && matches(g, q));
+  const list = filteredGarments();
   if (!list.length) {
-    return emptyState({ small: true, text: 'No hay prendas que coincidan con la búsqueda o el filtro.<br><br><button type="button" class="btn" data-clear>Quitar filtros</button>' });
+    return emptyState({ small: true, text: 'No hay prendas con esta búsqueda o estos filtros.<br><br><button type="button" class="btn" data-clear>Quitar filtros</button>' });
   }
-  if (q) {
+  if (wardrobeState.q.trim()) {
     return `<p class="lead">${plural(list.length, 'prenda', 'prendas')}</p><div class="g-grid">${list.map(garmentCard).join('')}</div>`;
+  }
+  // Sin búsqueda ni filtros: solo la lista de carpetas; las prendas se ven al abrir cada una.
+  if (!activeFilterCount()) {
+    return `<nav class="folder-list" aria-label="Carpetas">${FOLDERS.map((f) => {
+      const items = list.filter((g) => folderOf(g) === f);
+      if (!items.length) return '';
+      const types = typesIn(items);
+      return `<a class="folder-row" href="#/ropa/${f.id}">
+        <span class="folder-name">${esc(f.label)}${types.length > 1 ? `<small>${types.map(typePlural).join(' · ')}</small>` : ''}</span>
+        <span class="count">${items.length}</span>${CHEVRON}
+      </a>`;
+    }).join('')}</nav>`;
   }
   return FOLDERS.map((f) => {
     const items = list.filter((g) => folderOf(g) === f).sort(byTypeThenName);
@@ -412,6 +462,46 @@ function wardrobeResults() {
       <div class="g-grid">${items.map(garmentCard).join('')}</div>
     </section>`;
   }).join('');
+}
+
+// Chips de los filtros activos, cada uno con su ×.
+function activeChipsHTML() {
+  const st = wardrobeState;
+  const chip = (group, id, label) => `<button type="button" class="chip chip-active" data-remove-filter="${group}:${esc(id)}" aria-label="Quitar filtro ${esc(label)}">${esc(label)}${ICON.close}</button>`;
+  const chips = [
+    ...[...st.folders].map((id) => chip('folders', id, FOLDER[id].label)),
+    ...[...st.colors].map((id) => chip('colors', id, familyLabel(id))),
+    ...[...st.pending].map((id) => chip('pending', id, PENDING_BY_ID[id].label)),
+  ];
+  if (!chips.length) return '';
+  return `<div class="chips active-filters">${chips.join('')}${chips.length > 1 ? '<button type="button" class="chip-clear" data-clear>Quitar todo</button>' : ''}</div>`;
+}
+
+function filterButtonHTML() {
+  const n = activeFilterCount();
+  return `<button type="button" class="filter-btn" id="open-filters" aria-haspopup="dialog" ${n ? 'data-active' : ''}>${ICON.filter}<span>Filtros${n ? ` · ${n}` : ''}</span></button>`;
+}
+
+// Panel inferior. Cada opción enseña cuántas prendas activas tiene; las que tienen 0 no salen.
+function filterSheetHTML() {
+  const st = wardrobeState;
+  const all = activeGarments();
+  const opt = (group, id, label, n, on) => `<button type="button" class="chip" data-toggle-filter="${group}:${esc(id)}" aria-pressed="${on}">${esc(label)} <span class="count">${n}</span></button>`;
+  const folders = FOLDERS.map((f) => [f, all.filter((g) => folderOf(g) === f).length]).filter(([, n]) => n);
+  const families = COLOR_GROUPS.map(([label]) => [label, all.filter((g) => COLOR_FAMILY[g.color] === label).length]).filter(([, n]) => n);
+  const pend = PENDING.map((p) => [p, all.filter(p.test).length]).filter(([p, n]) => n || st.pending.has(p.id));
+  return `<form method="dialog" class="sheet-inner">
+    <div class="sheet-head"><h2>Filtros</h2><button class="sheet-close" value="close" aria-label="Cerrar">${ICON.close}</button></div>
+    <div class="sheet-body">
+      <section><h3>Tipo</h3><div class="chips">${folders.map(([f, n]) => opt('folders', f.id, f.label, n, st.folders.has(f.id))).join('')}</div></section>
+      ${families.length ? `<section><h3>Color</h3><div class="chips">${families.map(([label, n]) => opt('colors', label, familyLabel(label), n, st.colors.has(label))).join('')}</div></section>` : ''}
+      ${pend.length ? `<section><h3>Estado</h3><div class="chips">${pend.map(([p, n]) => opt('pending', p.id, p.label, n, st.pending.has(p.id))).join('')}</div></section>` : ''}
+    </div>
+    <div class="sheet-foot">
+      <button type="button" class="btn" data-sheet-clear>Limpiar</button>
+      <button class="btn btn-primary" value="close" id="sheet-apply"></button>
+    </div>
+  </form>`;
 }
 
 function viewWardrobe() {
@@ -427,34 +517,77 @@ function viewWardrobe() {
   }
   const noCompat = !S.compat.size && active.length >= 2
     ? '<p class="hint" style="margin-bottom:14px">Consejo: abre una prenda y pulsa «Editar combinaciones» para marcar con qué te gusta llevarla.</p>' : '';
-  const html = `
+  const html = `<div id="wardrobe">
     ${noCompat}
-    <label class="search">${ICON.search}<span class="sr-only">Buscar prenda</span>
-      <input id="w-search" type="search" placeholder="Buscar por nombre, tipo o color" value="${esc(wardrobeState.q)}" autocomplete="off" enterkeyhint="search">
-    </label>
-    ${chipsHTML(CATEGORY_FILTERS, wardrobeState.cat, 'Filtrar por categoría')}
+    <div class="search-row">
+      <label class="search">${ICON.search}<span class="sr-only">Buscar prenda</span>
+        <input id="w-search" type="search" placeholder="Buscar por nombre, tipo o color" value="${esc(wardrobeState.q)}" autocomplete="off" enterkeyhint="search">
+      </label>
+      <span id="filter-btn-slot">${filterButtonHTML()}</span>
+    </div>
+    <div id="active-filters">${activeChipsHTML()}</div>
     <div id="w-results">${wardrobeResults()}</div>
-    ${archiveLink}`;
+    ${archiveLink}
+    <dialog class="sheet" id="filter-sheet" aria-label="Filtros"></dialog>
+  </div>`;
   return {
     title: 'Mi ropa', tab: 'wardrobe', html, action: addAction('#/prenda/nueva', 'Prenda'),
     bind() {
       const input = $('#w-search');
-      const box = $('#w-results');
-      const refresh = () => { box.innerHTML = wardrobeResults(); };
-      const setCat = (c) => {
-        wardrobeState.cat = c;
-        $$('[data-filter]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.filter === c)));
-        refresh();
+      const sheet = $('#filter-sheet');
+      const st = wardrobeState;
+      const refresh = () => {
+        $('#w-results').innerHTML = wardrobeResults();
+        $('#active-filters').innerHTML = activeChipsHTML();
+        $('#filter-btn-slot').innerHTML = filterButtonHTML();
+        const apply = $('#sheet-apply');
+        if (apply) {
+          const n = filteredGarments().length;
+          apply.textContent = n ? `Ver ${plural(n, 'prenda', 'prendas')}` : 'Ninguna prenda';
+        }
       };
-      input.addEventListener('input', () => { wardrobeState.q = input.value; refresh(); });
+      const clearAll = () => { st.folders.clear(); st.colors.clear(); st.pending.clear(); };
+      const toggle = (key) => {
+        const [group, id] = key.split(/:(.*)/s);
+        if (st[group].has(id)) st[group].delete(id); else st[group].add(id);
+      };
+
+      input.addEventListener('input', () => { st.q = input.value; refresh(); });
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });
-      $('.chips').addEventListener('click', (e) => { const b = e.target.closest('[data-filter]'); if (b) setCat(b.dataset.filter); });
-      box.addEventListener('click', (e) => {
-        if (e.target.closest('[data-clear]')) { wardrobeState.q = ''; input.value = ''; setCat('all'); }
+
+      $('#wardrobe').addEventListener('click', (e) => {
+        if (e.target.closest('#open-filters')) {
+          sheet.innerHTML = filterSheetHTML();
+          refresh();
+          sheet.showModal();
+          return;
+        }
+        const rm = e.target.closest('[data-remove-filter]');
+        if (rm) { toggle(rm.dataset.removeFilter); refresh(); return; }
+        if (e.target.closest('[data-clear]') && !sheet.contains(e.target)) {
+          st.q = ''; input.value = ''; clearAll(); refresh();
+        }
+      });
+
+      sheet.addEventListener('click', (e) => {
+        if (e.target === sheet) { sheet.close(); return; } // toque fuera del panel
+        const b = e.target.closest('[data-toggle-filter]');
+        if (b) {
+          toggle(b.dataset.toggleFilter);
+          b.setAttribute('aria-pressed', String(b.getAttribute('aria-pressed') !== 'true'));
+          refresh();
+          return;
+        }
+        if (e.target.closest('[data-sheet-clear]')) {
+          clearAll();
+          $$('[data-toggle-filter]', sheet).forEach((x) => x.setAttribute('aria-pressed', 'false'));
+          refresh();
+        }
       });
     },
   };
 }
+
 
 // Carpeta: «Todos» + un chip por subtipo (si hay más de uno). El subtipo va en la ruta.
 function viewFolder(folderId, rawType) {
@@ -518,12 +651,14 @@ function viewGarment(id) {
       ${g.color ? `<span aria-hidden="true">·</span><span><i class="dot" style="background:${col}"></i>${esc(g.color)}</span>` : ''}
     </p>
     ${g.archived ? `<div class="notice"><strong>Prenda archivada</strong>No aparece en tu armario ni al crear conjuntos. Sus conjuntos se conservan, pero no salen como disponibles.</div>` : ''}
+    ${!g.archived && g.laundry ? `<div class="notice notice-wash"><strong>Para lavar · ${sinceText(g.laundrySince)}</strong>Sus conjuntos no salen en «Qué me pongo» hasta que esté limpia.</div>` : ''}
     <div class="actions">
       ${g.archived ? '' : `<a class="btn btn-primary" href="#/conjunto/nuevo?desde=${id}">${ICON.layers}Crear conjunto con esta prenda</a>`}
       <div class="btn-row">
         <a class="btn" href="#/prenda/${id}/editar">${ICON.edit}Editar</a>
         ${g.archived ? '' : `<a class="btn" href="#/prenda/${id}/combina">${ICON.link}Combinaciones</a>`}
       </div>
+      ${g.archived ? '' : `<button type="button" class="btn" id="toggle-wash">${ICON.wash}${g.laundry ? 'Ya está limpia' : 'Marcar para lavar'}</button>`}
     </div>
     <section class="section">
       <div class="section-head"><h3>Combina con <span class="count">${rel.length || ''}</span></h3></div>
@@ -542,7 +677,12 @@ function viewGarment(id) {
 
   return {
     title: 'Prenda', tab: 'wardrobe', back: g.archived ? '#/archivo' : `#/ropa/${folderOf(g).id}`, html,
-    bind() { $('#toggle-archive').addEventListener('click', () => setArchived(g, !g.archived)); },
+    bind() {
+      $('#toggle-archive').addEventListener('click', () => setArchived(g, !g.archived));
+      $('#toggle-wash')?.addEventListener('click', async () => {
+        if (await setLaundry([g.id], !g.laundry)) { toast(g.laundry ? 'Prenda limpia' : 'Al cesto'); render(); }
+      });
+    },
   };
 }
 
@@ -824,6 +964,87 @@ function viewCompatEditor(id) {
   };
 }
 
+/* ---------- Colada ---------- */
+// Qué se lava al ponerte un conjunto: 'always' sale marcado, 'ask' sale sin marcar y 'never' no sale.
+const WASH_RULE = {
+  camisetas: 'always', camisas: 'always', 'otras-arriba': 'always',
+  sudaderas: 'ask', jerseys: 'ask', pantalones: 'ask',
+  abrigos: 'never', calzado: 'never', accesorios: 'never',
+};
+
+function sinceText(iso) {
+  const days = Math.floor((Date.now() - Date.parse(iso)) / 86400000);
+  if (!(days > 0)) return 'desde hoy';
+  return days === 1 ? 'desde ayer' : `desde hace ${days} días`;
+}
+
+async function setLaundry(ids, laundry) {
+  const ts = nowISO();
+  const next = ids.map((id) => S.garments.get(id)).filter(Boolean)
+    .map((g) => ({ ...g, laundry, laundrySince: laundry ? ts : null, updatedAt: ts }));
+  if (!next.length) return true;
+  try {
+    await write(['garments'], (s) => next.forEach((g) => s.garments.put(g)));
+  } catch (e) {
+    toast(saveErrorMessage(e), true);
+    return false;
+  }
+  next.forEach((g) => S.garments.set(g.id, g));
+  return true;
+}
+
+// Pregunta qué prendas del conjunto van a lavar. Resuelve con sus ids, o null si se cancela.
+function wearDialog(o) {
+  const gs = outfitGarments(o).filter((g) => WASH_RULE[folderOf(g).id] !== 'never');
+  return new Promise((resolve) => {
+    const d = $('#dialog');
+    d.innerHTML = `<form method="dialog">
+      <h2>¿Qué va a lavar?</h2>
+      <p>${gs.length ? 'Lo que marques se quedará en el cesto y sus conjuntos no saldrán en «Qué me pongo» hasta que esté limpio.' : 'Nada de este conjunto se suele lavar por uso.'}</p>
+      ${gs.length ? `<div class="wash-list">${gs.map((g) => `<label class="wash-item">
+          ${thumb(g)}<span>${esc(g.name)}</span>
+          <input type="checkbox" name="wash" value="${g.id}" ${WASH_RULE[folderOf(g).id] === 'always' ? 'checked' : ''}>
+        </label>`).join('')}</div>` : ''}
+      <div class="dialog-actions">
+        <button class="btn" value="cancel">Cancelar</button>
+        <button class="btn btn-primary" value="ok">Hecho</button>
+      </div>
+    </form>`;
+    d.returnValue = '';
+    d.onclose = () => resolve(d.returnValue === 'ok' ? $$('input[name="wash"]:checked', d).map((i) => i.value) : null);
+    d.showModal();
+  });
+}
+
+function viewLaundry() {
+  const list = laundryGarments();
+  if (!list.length) {
+    return {
+      title: 'Para lavar', tab: 'today', back: '#/',
+      html: emptyState({ icon: ICON.wash, title: 'Nada para lavar', text: 'Cuando te pongas un conjunto, aquí aparecerá lo que va a lavar.', href: '#/', label: 'Volver' }),
+    };
+  }
+  const html = `
+    <p class="lead">${plural(list.length, 'prenda', 'prendas')} en el cesto. Márcalas como limpias cuando hagas la colada.</p>
+    <div class="folder-list">${list.map((g) => `<div class="folder-row wash-row">
+        <a href="#/prenda/${g.id}" class="wash-link">${thumb(g)}<span class="folder-name">${esc(g.name)}<small>${esc(g.type)} · ${sinceText(g.laundrySince)}</small></span></a>
+        <button type="button" class="btn btn-sm" data-clean="${g.id}">Limpia</button>
+      </div>`).join('')}</div>
+    <button type="button" class="btn btn-primary btn-block" id="all-clean" style="margin-top:16px">${ICON.check}Todo limpio</button>`;
+  return {
+    title: 'Para lavar', tab: 'today', back: '#/', html,
+    bind() {
+      $('#view .folder-list').addEventListener('click', async (e) => {
+        const b = e.target.closest('[data-clean]');
+        if (b && await setLaundry([b.dataset.clean], false)) { toast('Prenda limpia'); render(); }
+      });
+      $('#all-clean').addEventListener('click', async () => {
+        if (await setLaundry(list.map((g) => g.id), false)) { toast('Todo limpio'); render(); }
+      });
+    },
+  };
+}
+
 /* ---------- Conjuntos ---------- */
 function viewOutfits() {
   const all = [...S.outfits.values()].sort(byName);
@@ -837,8 +1058,9 @@ function viewOutfits() {
       label: canCreate ? 'Crear mi primer conjunto' : 'Añadir prenda',
     });
   } else {
-    const unavailable = all.filter((o) => !isAvailable(o)).length;
-    html = `<p class="lead">${plural(all.length, 'conjunto guardado', 'conjuntos guardados')}${unavailable ? ` · ${unavailable} con ropa archivada` : ''}</p>
+    const archivedN = all.filter(hasArchived).length;
+    const washN = all.filter((o) => !hasArchived(o) && toWash(o).length).length;
+    html = `<p class="lead">${plural(all.length, 'conjunto guardado', 'conjuntos guardados')}${washN ? ` · ${washN} para lavar` : ''}${archivedN ? ` · ${archivedN} con ropa archivada` : ''}</p>
       <div class="o-grid">${all.map(outfitCard).join('')}</div>`;
   }
   return { title: 'Conjuntos', tab: 'outfits', html, action: all.length && canCreate ? addAction('#/conjunto/nuevo', 'Conjunto') : '' };
@@ -849,17 +1071,24 @@ function viewOutfit(id) {
   if (!o) return viewNotFound('Este conjunto no existe.');
   const gs = outfitGarments(o);
   const archived = gs.filter((g) => g.archived);
+  const dirty = gs.filter((g) => g.laundry && !g.archived);
+  const wearBtn = archived.length ? ''
+    : dirty.length
+      ? `<button type="button" class="btn btn-primary" id="o-clean">${ICON.check}${dirty.length === 1 ? 'Ya está limpia' : 'Ya están limpias'}</button>`
+      : `<button type="button" class="btn btn-primary" id="o-wear">${ICON.check}Me lo pongo</button>`;
   const html = `
     ${collage(o, 'collage-lg')}
     <h2 class="detail-title">${esc(o.name)}</h2>
     <p class="meta">${plural(gs.length, 'prenda', 'prendas')}</p>
     ${archived.length ? `<div class="notice"><strong>Contiene ropa archivada</strong>${archived.map((g) => `«${esc(g.name)}»`).join(', ')}. Por eso no aparece en «Qué me pongo» hasta que la restaures.</div>` : ''}
+    ${!archived.length && dirty.length ? `<div class="notice notice-wash"><strong>Para lavar</strong>${dirty.map((g) => `«${esc(g.name)}»`).join(', ')}. No sale en «Qué me pongo» hasta que ${dirty.length === 1 ? 'esté limpia' : 'estén limpias'}.</div>` : ''}
     <section class="section">
       <div class="section-head"><h3>Prendas</h3></div>
       <div class="mini-list">${gs.map(garmentCard).join('')}</div>
     </section>
     <div class="actions">
-      <a class="btn btn-primary" href="#/conjunto/${id}/editar">${ICON.edit}Editar conjunto</a>
+      ${wearBtn}
+      <a class="btn ${wearBtn ? '' : 'btn-primary'}" href="#/conjunto/${id}/editar">${ICON.edit}Editar conjunto</a>
     </div>
     <div class="danger-zone">
       <button type="button" class="btn btn-block btn-ghost-danger" id="o-delete">Eliminar conjunto</button>
@@ -868,6 +1097,17 @@ function viewOutfit(id) {
   return {
     title: 'Conjunto', tab: 'outfits', back: '#/conjuntos', html,
     bind() {
+      $('#o-wear')?.addEventListener('click', async () => {
+        const ids = await wearDialog(o);
+        if (ids === null) return;
+        if (await setLaundry(ids, true)) {
+          toast(ids.length ? `Disfrútalo · ${plural(ids.length, 'prenda', 'prendas')} al cesto` : 'Disfrútalo');
+          render();
+        }
+      });
+      $('#o-clean')?.addEventListener('click', async () => {
+        if (await setLaundry(dirty.map((g) => g.id), false)) { toast('Listo para ponértelo otra vez'); render(); }
+      });
       $('#o-delete').addEventListener('click', async () => {
         const ok = await confirmDialog({ title: `¿Eliminar «${o.name}»?`, body: 'Se borrará esta selección guardada. Las prendas y sus combinaciones se mantienen.', confirm: 'Eliminar', danger: true });
         if (!ok) return;
@@ -1087,6 +1327,7 @@ function validateBackup(b) {
     garments.set(g.id, {
       id: g.id, name: g.name, category: g.category, type: g.type, color: g.color || null,
       imageId: g.imageId ?? null, archived: Boolean(g.archived),
+      laundry: Boolean(g.laundry), laundrySince: g.laundry ? String(g.laundrySince || nowISO()) : null,
       createdAt: String(g.createdAt || nowISO()), updatedAt: String(g.updatedAt || nowISO()),
     });
   }
@@ -1157,6 +1398,7 @@ const routes = [
   [/^#\/ropa$/, viewWardrobe],
   [/^#\/ropa\/([\w-]+)(?:\/([^/]+))?$/, viewFolder],
   [/^#\/archivo$/, viewArchive],
+  [/^#\/cesto$/, viewLaundry],
   [/^#\/prenda\/nueva(?:\?(.*))?$/, (qs) => viewGarmentForm(null, Object.fromEntries(new URLSearchParams(qs || '')))],
   [/^#\/prenda\/([\w-]+)\/editar$/, viewGarmentForm],
   [/^#\/prenda\/([\w-]+)\/combina$/, viewCompatEditor],
