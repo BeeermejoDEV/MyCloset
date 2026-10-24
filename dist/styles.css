@@ -189,7 +189,7 @@ a.chip { display: inline-flex; align-items: center; text-decoration: none; }
 .o-items { margin: 3px 4px 0; font-size: 13px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .o-card .badge { margin: 8px 4px 0; align-self: flex-start; }
 
-.collage { position: relative; display: grid; gap: 3px; aspect-ratio: 1; border-radius: 10px; overflow: hidden; background: var(--surface-2); }
+.collage { position: relative; display: grid; gap: 3px; aspect-ratio: 3 / 4; border-radius: 10px; overflow: hidden; background: var(--surface-2); }
 .collage .thumb { aspect-ratio: auto; border-radius: 0; min-height: 0; }
 .collage.n1 { grid-template: 1fr / 1fr; }
 .collage.n2 { grid-template: 1fr / 1fr 1fr; }
