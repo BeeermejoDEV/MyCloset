@@ -369,24 +369,6 @@ const byTypeThenName = (a, b) => typeOrder(a) - typeOrder(b) || collator.compare
 const folderGarments = (f) => activeGarments().filter((g) => folderOf(g) === f).sort(byTypeThenName);
 const typesIn = (gs) => [...new Set(gs.map((g) => g.type))];
 
-// Portada de carpeta: hasta 4 prendas en mosaico.
-function folderCover(gs) {
-  const shown = gs.slice(0, 4);
-  return `<div class="collage n${Math.max(1, shown.length)}" aria-hidden="true">${shown.map((g) => thumb(g)).join('')}</div>`;
-}
-
-function folderCard(href, label, gs, sub = '') {
-  return `<a class="o-card folder-card" href="${href}">
-    ${folderCover(gs)}
-    <span class="o-name">${esc(label)} <span class="count">${gs.length}</span></span>
-    ${sub ? `<span class="o-items">${esc(sub)}</span>` : ''}
-  </a>`;
-}
-
-// «Subcarpetas» o «Todo» dentro de una carpeta; se recuerda en este dispositivo.
-let folderMode = 'sub';
-try { folderMode = localStorage.getItem('mycloset.folderMode') || 'sub'; } catch (_) { /* sin almacenamiento */ }
-
 function newGarmentHref(category, type) {
   const p = new URLSearchParams();
   if (category) p.set('cat', category);
@@ -395,24 +377,32 @@ function newGarmentHref(category, type) {
   return `#/prenda/nueva${qs ? '?' + qs : ''}`;
 }
 
-const wardrobeState = { q: '' };
+const CHEVRON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>';
+
+// Cabecera de sección que abre su carpeta.
+const folderHead = (href, label, n) => `<div class="section-head">
+    <a class="folder-link" href="${href}"><h2>${esc(label)} <span class="count">${n}</span></h2>${CHEVRON}</a>
+  </div>`;
+
+const wardrobeState = { q: '', cat: 'all' };
 
 function wardrobeResults() {
   const q = norm(wardrobeState.q.trim());
+  const list = activeGarments().filter((g) => (wardrobeState.cat === 'all' || g.category === wardrobeState.cat) && matches(g, q));
+  if (!list.length) {
+    return emptyState({ small: true, text: 'No hay prendas que coincidan con la búsqueda o el filtro.<br><br><button type="button" class="btn" data-clear>Quitar filtros</button>' });
+  }
   if (q) {
-    const list = activeGarments().filter((g) => matches(g, q));
-    if (!list.length) {
-      return emptyState({ small: true, text: 'No hay prendas que coincidan con la búsqueda.<br><br><button type="button" class="btn" data-clear>Quitar búsqueda</button>' });
-    }
     return `<p class="lead">${plural(list.length, 'prenda', 'prendas')}</p><div class="g-grid">${list.map(garmentCard).join('')}</div>`;
   }
-  const cards = FOLDERS.map((f) => {
-    const gs = folderGarments(f);
-    if (!gs.length) return '';
-    const types = typesIn(gs);
-    return folderCard(`#/ropa/${f.id}`, f.label, gs, types.length > 1 ? types.map(typePlural).join(' · ') : '');
+  return FOLDERS.map((f) => {
+    const items = list.filter((g) => folderOf(g) === f).sort(byTypeThenName);
+    if (!items.length) return '';
+    return `<section class="section" style="margin-top:18px">
+      ${folderHead(`#/ropa/${f.id}`, f.label, items.length)}
+      <div class="g-grid">${items.map(garmentCard).join('')}</div>
+    </section>`;
   }).join('');
-  return `<div class="o-grid">${cards}</div>`;
 }
 
 function viewWardrobe() {
@@ -427,12 +417,13 @@ function viewWardrobe() {
     };
   }
   const noCompat = !S.compat.size && active.length >= 2
-    ? '<p class="hint" style="margin-bottom:14px">Consejo: abre una prenda y pulsa «Combinaciones» para marcar con qué te gusta llevarla.</p>' : '';
+    ? '<p class="hint" style="margin-bottom:14px">Consejo: abre una prenda y pulsa «Editar combinaciones» para marcar con qué te gusta llevarla.</p>' : '';
   const html = `
     ${noCompat}
     <label class="search">${ICON.search}<span class="sr-only">Buscar prenda</span>
-      <input id="w-search" type="search" placeholder="Buscar en todo el armario" value="${esc(wardrobeState.q)}" autocomplete="off" enterkeyhint="search">
+      <input id="w-search" type="search" placeholder="Buscar por nombre, tipo o color" value="${esc(wardrobeState.q)}" autocomplete="off" enterkeyhint="search">
     </label>
+    ${chipsHTML(CATEGORY_FILTERS, wardrobeState.cat, 'Filtrar por categoría')}
     <div id="w-results">${wardrobeResults()}</div>
     ${archiveLink}`;
   return {
@@ -441,15 +432,22 @@ function viewWardrobe() {
       const input = $('#w-search');
       const box = $('#w-results');
       const refresh = () => { box.innerHTML = wardrobeResults(); };
+      const setCat = (c) => {
+        wardrobeState.cat = c;
+        $$('[data-filter]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.filter === c)));
+        refresh();
+      };
       input.addEventListener('input', () => { wardrobeState.q = input.value; refresh(); });
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });
+      $('.chips').addEventListener('click', (e) => { const b = e.target.closest('[data-filter]'); if (b) setCat(b.dataset.filter); });
       box.addEventListener('click', (e) => {
-        if (e.target.closest('[data-clear]')) { wardrobeState.q = ''; input.value = ''; refresh(); }
+        if (e.target.closest('[data-clear]')) { wardrobeState.q = ''; input.value = ''; setCat('all'); }
       });
     },
   };
 }
 
+// Carpeta: «Todos» + un chip por subtipo (si hay más de uno). El subtipo va en la ruta.
 function viewFolder(folderId, rawType) {
   const f = FOLDER[folderId];
   if (!f) return viewNotFound('Esta carpeta no existe.');
@@ -458,15 +456,6 @@ function viewFolder(folderId, rawType) {
   const types = typesIn(all);
   const action = addAction(newGarmentHref(f.category, type || (types.length === 1 && f.types ? types[0] : '')), 'Prenda');
 
-  // Subcarpeta: solo un tipo.
-  if (type) {
-    const gs = all.filter((g) => g.type === type);
-    const html = gs.length
-      ? `<p class="lead">${plural(gs.length, 'prenda', 'prendas')}</p><div class="g-grid">${gs.map(garmentCard).join('')}</div>`
-      : emptyState({ title: 'Subcarpeta vacía', text: 'No te queda ninguna prenda activa de este tipo.', href: `#/ropa/${f.id}`, label: `Volver a ${f.label}` });
-    return { title: typePlural(type), tab: 'wardrobe', back: `#/ropa/${f.id}`, html, action };
-  }
-
   if (!all.length) {
     return {
       title: f.label, tab: 'wardrobe', back: '#/ropa', action,
@@ -474,40 +463,16 @@ function viewFolder(folderId, rawType) {
     };
   }
 
-  const hasSubs = types.length > 1;
-  let body;
-  if (hasSubs && folderMode === 'sub') {
-    body = `<div class="o-grid">${types.map((t) => folderCard(`#/ropa/${f.id}/${encodeURIComponent(t)}`, typePlural(t), all.filter((g) => g.type === t))).join('')}</div>`;
-  } else if (hasSubs) {
-    body = types.map((t) => {
-      const gs = all.filter((g) => g.type === t);
-      return `<section class="section" style="margin-top:18px">
-        <div class="section-head"><h2>${esc(typePlural(t))} <span class="count">${gs.length}</span></h2></div>
-        <div class="g-grid">${gs.map(garmentCard).join('')}</div>
-      </section>`;
-    }).join('');
-  } else {
-    body = `<div class="g-grid">${all.map(garmentCard).join('')}</div>`;
-  }
+  const shown = type ? all.filter((g) => g.type === type) : all;
+  const chips = types.length > 1 ? `<nav class="chips" aria-label="Subcarpetas">
+      <a class="chip" href="#/ropa/${f.id}" aria-current="${type ? 'false' : 'page'}">Todos</a>
+      ${types.map((t) => `<a class="chip" href="#/ropa/${f.id}/${encodeURIComponent(t)}" aria-current="${t === type ? 'page' : 'false'}">${esc(typePlural(t))}</a>`).join('')}
+    </nav>` : '';
+  const grid = shown.length
+    ? `<div class="g-grid">${shown.map(garmentCard).join('')}</div>`
+    : emptyState({ small: true, text: 'No te queda ninguna prenda activa de este tipo.' });
 
-  const toggle = hasSubs ? `<div class="segmented" role="group" aria-label="Cómo ver la carpeta">
-      <button type="button" data-mode="sub" aria-pressed="${folderMode === 'sub'}">Subcarpetas</button>
-      <button type="button" data-mode="all" aria-pressed="${folderMode === 'all'}">Todo</button>
-    </div>` : '';
-
-  return {
-    title: f.label, tab: 'wardrobe', back: '#/ropa', action,
-    html: `<p class="lead">${plural(all.length, 'prenda', 'prendas')}</p>${toggle}${body}`,
-    bind() {
-      $('.segmented')?.addEventListener('click', (e) => {
-        const b = e.target.closest('[data-mode]');
-        if (!b || b.dataset.mode === folderMode) return;
-        folderMode = b.dataset.mode;
-        try { localStorage.setItem('mycloset.folderMode', folderMode); } catch (_) { /* sin almacenamiento */ }
-        render();
-      });
-    },
-  };
+  return { title: f.label, tab: 'wardrobe', back: '#/ropa', action, html: chips + grid };
 }
 
 /* ---------- Archivo ---------- */
