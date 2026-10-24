@@ -19,13 +19,19 @@ const CATEGORIES = [
 ];
 const CAT = Object.fromEntries(CATEGORIES.map((c, i) => [c.id, { ...c, order: i }]));
 
-const COLORS = [
-  ['Negro', '#1c1c1c'], ['Blanco', '#f8f8f6'], ['Gris', '#9a9a9a'], ['Beige', '#d9c8a9'],
-  ['Marrón', '#7a5233'], ['Azul marino', '#1f2a44'], ['Azul', '#3b6fb6'], ['Celeste', '#9cc4e4'],
-  ['Verde', '#4f7a4a'], ['Caqui', '#8a8458'], ['Rojo', '#b83a32'], ['Granate', '#6e1f2a'],
-  ['Amarillo', '#e6c44a'], ['Naranja', '#d9783a'], ['Rosa', '#e4a3b4'], ['Morado', '#6d4a8a'],
-  ['Multicolor', 'conic-gradient(#d33, #e6c44a, #4f7a4a, #3b6fb6, #6d4a8a, #d33)'],
+// Colores por familia. Los nombres antiguos (Gris, Azul, Beige…) se mantienen para no cambiar prendas ya guardadas.
+const COLOR_GROUPS = [
+  ['Negros y grises', [['Negro', '#1c1c1c'], ['Gris oscuro', '#4a4a4a'], ['Gris', '#9a9a9a'], ['Gris claro', '#cfcfcf']]],
+  ['Blancos y beiges', [['Blanco', '#f8f8f6'], ['Crudo', '#efe8da'], ['Beige', '#d9c8a9'], ['Arena', '#c8b28a'], ['Camel', '#b8875a']]],
+  ['Marrones', [['Marrón claro', '#a0724a'], ['Marrón', '#7a5233'], ['Marrón oscuro', '#4b3121']]],
+  ['Azules', [['Celeste', '#9cc4e4'], ['Azul claro', '#7aa7d8'], ['Azul', '#3b6fb6'], ['Azul vaquero', '#4a6a8f'], ['Azul oscuro', '#26406e'], ['Azul marino', '#1f2a44']]],
+  ['Verdes', [['Verde claro', '#9cc79a'], ['Verde', '#4f7a4a'], ['Verde oliva', '#6b6b3a'], ['Caqui', '#8a8458'], ['Verde botella', '#1f4a33']]],
+  ['Rojos y rosas', [['Rosa', '#e4a3b4'], ['Rojo', '#b83a32'], ['Granate', '#6e1f2a'], ['Burdeos', '#5a1a26']]],
+  ['Amarillos y naranjas', [['Amarillo', '#e6c44a'], ['Mostaza', '#c99a2e'], ['Naranja', '#d9783a'], ['Teja', '#b0573a']]],
+  ['Morados', [['Lila', '#b9a3d6'], ['Morado', '#6d4a8a']]],
+  ['Otros', [['Multicolor', 'conic-gradient(#d33, #e6c44a, #4f7a4a, #3b6fb6, #6d4a8a, #d33)']]],
 ];
+const COLORS = COLOR_GROUPS.flatMap(([, list]) => list);
 const COLOR = Object.fromEntries(COLORS);
 
 const ICON = {
@@ -203,8 +209,11 @@ function emptyState({ icon = ICON.hanger, title, text, href, label, small = fals
 const addAction = (href, label) => `<a class="icon-btn" href="${href}">${ICON.plus}<span>${esc(label)}</span></a>`;
 
 function colorOptions(current) {
-  return `<option value="">Sin indicar</option>` +
-    COLORS.map(([name]) => `<option ${name === current ? 'selected' : ''}>${esc(name)}</option>`).join('');
+  const opt = (name) => `<option ${name === current ? 'selected' : ''}>${esc(name)}</option>`;
+  // Un color que ya no está en la lista (p. ej. de una copia antigua) se conserva.
+  const unknown = current && !COLOR[current] ? opt(current) : '';
+  return `<option value="">Sin indicar</option>${unknown}` +
+    COLOR_GROUPS.map(([label, list]) => `<optgroup label="${esc(label)}">${list.map(([name]) => opt(name)).join('')}</optgroup>`).join('');
 }
 
 function chipsHTML(filters, current, label) {

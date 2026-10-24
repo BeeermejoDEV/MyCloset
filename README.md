@@ -533,6 +533,7 @@ No hace falta responder todas estas preguntas en un único mensaje. Se podrán c
 - **Publicado (23/10/2026):** https://beeermejodev.github.io/MyCloset/ — repo público `BeeermejoDEV/MyCloset`, commits con email noreply de GitHub.
 - **Decidido (23/10/2026):** alojamiento en **GitHub Pages** y datos **solo en el iPhone** (IndexedDB), con copias manuales desde Ajustes. Sin sincronización entre dispositivos.
 - **24/10/2026:** «Mi ropa» mantiene el diseño base (buscador, chips de categoría y rejilla) pero cada sección es una carpeta (Camisetas, Camisas, Sudaderas, Jerseys, Pantalones, Chaquetas y abrigos, Calzado, Accesorios), derivada de categoría + tipo sin cambiar los datos. Tocar el título abre la carpeta; dentro, chips «Todos» + un chip por subtipo. Criterio de David: minimalista, sin sobrecargar.
+- **24/10/2026:** color principal ampliado a 33 tonos agrupados por familia (p. ej. gris oscuro / gris / gris claro). Los nombres anteriores se mantienen; un color desconocido de una copia antigua se conserva al editar.
 - La app funciona sin conexión (service worker `dist/sw.js`, primero red y, si no hay, copia guardada).
 - Los datos de prueba (`datos-prueba/`) no están en `dist/` y nunca se publican; el botón «Cargar datos de prueba» solo aparece en local.
 - El antiguo registro de Sites (`.openai/hosting.json`) queda sin usar y fuera de Git.
