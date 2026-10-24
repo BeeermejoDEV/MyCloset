@@ -532,6 +532,7 @@ No hace falta responder todas estas preguntas en un único mensaje. Se podrán c
 - Arrancar en local: `node MyCloset/serve.mjs` → `http://localhost:5190` (solo este Mac). Para probar desde el iPhone en la misma wifi: `HOST=0.0.0.0 node MyCloset/serve.mjs`.
 - **Publicado (23/10/2026):** https://beeermejodev.github.io/MyCloset/ — repo público `BeeermejoDEV/MyCloset`, commits con email noreply de GitHub.
 - **Decidido (23/10/2026):** alojamiento en **GitHub Pages** y datos **solo en el iPhone** (IndexedDB), con copias manuales desde Ajustes. Sin sincronización entre dispositivos.
+- **24/10/2026:** «Mi ropa» se organiza en carpetas (Camisetas, Camisas, Sudaderas, Jerseys, Pantalones, Chaquetas y abrigos, Calzado, Accesorios) derivadas de categoría + tipo, sin cambiar los datos. Dentro, si hay varios tipos, se elige ver «Subcarpetas» o «Todo». La búsqueda sigue cubriendo todo el armario.
 - La app funciona sin conexión (service worker `dist/sw.js`, primero red y, si no hay, copia guardada).
 - Los datos de prueba (`datos-prueba/`) no están en `dist/` y nunca se publican; el botón «Cargar datos de prueba» solo aparece en local.
 - El antiguo registro de Sites (`.openai/hosting.json`) queda sin usar y fuera de Git.

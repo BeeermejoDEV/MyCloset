@@ -334,26 +334,85 @@ function viewToday() {
   return { title: 'Qué me pongo', tab: 'today', html, action: all.length && activeGarments().length >= 2 ? addAction('#/conjunto/nuevo', 'Conjunto') : '' };
 }
 
-/* ---------- Mi ropa ---------- */
-const wardrobeState = { q: '', cat: 'all' };
+/* ---------- Mi ropa: carpetas y subcarpetas ---------- */
+// La carpeta sale de la categoría y el tipo de cada prenda: no se guarda nada nuevo.
+// Una carpeta sin `types` recoge todos los tipos de su categoría; `fallback` recoge tipos no listados.
+const FOLDERS = [
+  { id: 'camisetas', label: 'Camisetas', category: 'top', types: ['Camiseta', 'Polo'] },
+  { id: 'camisas', label: 'Camisas', category: 'top', types: ['Camisa', 'Sobrecamisa'] },
+  { id: 'sudaderas', label: 'Sudaderas', category: 'top', types: ['Sudadera'] },
+  { id: 'jerseys', label: 'Jerseys', category: 'top', types: ['Jersey', 'Cárdigan'] },
+  { id: 'otras-arriba', label: 'Otras de arriba', category: 'top', types: ['Otro'], fallback: true },
+  { id: 'pantalones', label: 'Pantalones', category: 'bottom' },
+  { id: 'abrigos', label: 'Chaquetas y abrigos', category: 'outer' },
+  { id: 'calzado', label: 'Calzado', category: 'shoes' },
+  { id: 'accesorios', label: 'Accesorios', category: 'acc' },
+];
+const FOLDER = Object.fromEntries(FOLDERS.map((f) => [f.id, f]));
+
+const TYPE_PLURAL = {
+  Camiseta: 'Camisetas', Polo: 'Polos', Camisa: 'Camisas', Sobrecamisa: 'Sobrecamisas', Sudadera: 'Sudaderas',
+  Jersey: 'Jerseys', 'Cárdigan': 'Cárdigans', Vaquero: 'Vaqueros', Chino: 'Chinos', 'Pantalón de vestir': 'Pantalones de vestir',
+  Jogger: 'Joggers', 'Pantalón corto': 'Pantalones cortos', Chaqueta: 'Chaquetas', Cazadora: 'Cazadoras', Abrigo: 'Abrigos',
+  Chaleco: 'Chalecos', 'Cinturón': 'Cinturones', Gorra: 'Gorras', Bufanda: 'Bufandas', Reloj: 'Relojes', Otro: 'Otros',
+};
+const typePlural = (t) => TYPE_PLURAL[t] || t;
+
+function folderOf(g) {
+  return FOLDERS.find((f) => f.category === g.category && (!f.types || f.types.includes(g.type)))
+    || FOLDERS.find((f) => f.category === g.category && f.fallback)
+    || FOLDERS.find((f) => f.category === g.category);
+}
+
+const typeOrder = (g) => CAT[g.category]?.types.indexOf(g.type) ?? 99;
+const byTypeThenName = (a, b) => typeOrder(a) - typeOrder(b) || collator.compare(a.name, b.name);
+const folderGarments = (f) => activeGarments().filter((g) => folderOf(g) === f).sort(byTypeThenName);
+const typesIn = (gs) => [...new Set(gs.map((g) => g.type))];
+
+// Portada de carpeta: hasta 4 prendas en mosaico.
+function folderCover(gs) {
+  const shown = gs.slice(0, 4);
+  return `<div class="collage n${Math.max(1, shown.length)}" aria-hidden="true">${shown.map((g) => thumb(g)).join('')}</div>`;
+}
+
+function folderCard(href, label, gs, sub = '') {
+  return `<a class="o-card folder-card" href="${href}">
+    ${folderCover(gs)}
+    <span class="o-name">${esc(label)} <span class="count">${gs.length}</span></span>
+    ${sub ? `<span class="o-items">${esc(sub)}</span>` : ''}
+  </a>`;
+}
+
+// «Subcarpetas» o «Todo» dentro de una carpeta; se recuerda en este dispositivo.
+let folderMode = 'sub';
+try { folderMode = localStorage.getItem('mycloset.folderMode') || 'sub'; } catch (_) { /* sin almacenamiento */ }
+
+function newGarmentHref(category, type) {
+  const p = new URLSearchParams();
+  if (category) p.set('cat', category);
+  if (type) p.set('tipo', type);
+  const qs = p.toString();
+  return `#/prenda/nueva${qs ? '?' + qs : ''}`;
+}
+
+const wardrobeState = { q: '' };
 
 function wardrobeResults() {
   const q = norm(wardrobeState.q.trim());
-  const list = activeGarments().filter((g) => (wardrobeState.cat === 'all' || g.category === wardrobeState.cat) && matches(g, q));
-  if (!list.length) {
-    return emptyState({ small: true, text: 'No hay prendas que coincidan con la búsqueda o el filtro.<br><br><button type="button" class="btn" data-clear>Quitar filtros</button>' });
+  if (q) {
+    const list = activeGarments().filter((g) => matches(g, q));
+    if (!list.length) {
+      return emptyState({ small: true, text: 'No hay prendas que coincidan con la búsqueda.<br><br><button type="button" class="btn" data-clear>Quitar búsqueda</button>' });
+    }
+    return `<p class="lead">${plural(list.length, 'prenda', 'prendas')}</p><div class="g-grid">${list.map(garmentCard).join('')}</div>`;
   }
-  if (wardrobeState.cat === 'all' && !q) {
-    return CATEGORIES.map((c) => {
-      const items = list.filter((g) => g.category === c.id);
-      if (!items.length) return '';
-      return `<section class="section" style="margin-top:18px">
-        <div class="section-head"><h2>${esc(c.label)} <span class="count">${items.length}</span></h2></div>
-        <div class="g-grid">${items.map(garmentCard).join('')}</div>
-      </section>`;
-    }).join('');
-  }
-  return `<p class="lead">${plural(list.length, 'prenda', 'prendas')}</p><div class="g-grid">${list.map(garmentCard).join('')}</div>`;
+  const cards = FOLDERS.map((f) => {
+    const gs = folderGarments(f);
+    if (!gs.length) return '';
+    const types = typesIn(gs);
+    return folderCard(`#/ropa/${f.id}`, f.label, gs, types.length > 1 ? types.map(typePlural).join(' · ') : '');
+  }).join('');
+  return `<div class="o-grid">${cards}</div>`;
 }
 
 function viewWardrobe() {
@@ -368,13 +427,12 @@ function viewWardrobe() {
     };
   }
   const noCompat = !S.compat.size && active.length >= 2
-    ? '<p class="hint" style="margin-bottom:14px">Consejo: abre una prenda y pulsa «Editar combinaciones» para marcar con qué te gusta llevarla.</p>' : '';
+    ? '<p class="hint" style="margin-bottom:14px">Consejo: abre una prenda y pulsa «Combinaciones» para marcar con qué te gusta llevarla.</p>' : '';
   const html = `
     ${noCompat}
     <label class="search">${ICON.search}<span class="sr-only">Buscar prenda</span>
-      <input id="w-search" type="search" placeholder="Buscar por nombre, tipo o color" value="${esc(wardrobeState.q)}" autocomplete="off" enterkeyhint="search">
+      <input id="w-search" type="search" placeholder="Buscar en todo el armario" value="${esc(wardrobeState.q)}" autocomplete="off" enterkeyhint="search">
     </label>
-    ${chipsHTML(CATEGORY_FILTERS, wardrobeState.cat, 'Filtrar por categoría')}
     <div id="w-results">${wardrobeResults()}</div>
     ${archiveLink}`;
   return {
@@ -383,16 +441,70 @@ function viewWardrobe() {
       const input = $('#w-search');
       const box = $('#w-results');
       const refresh = () => { box.innerHTML = wardrobeResults(); };
-      const setCat = (c) => {
-        wardrobeState.cat = c;
-        $$('[data-filter]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.filter === c)));
-        refresh();
-      };
       input.addEventListener('input', () => { wardrobeState.q = input.value; refresh(); });
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });
-      $('.chips').addEventListener('click', (e) => { const b = e.target.closest('[data-filter]'); if (b) setCat(b.dataset.filter); });
       box.addEventListener('click', (e) => {
-        if (e.target.closest('[data-clear]')) { wardrobeState.q = ''; input.value = ''; setCat('all'); }
+        if (e.target.closest('[data-clear]')) { wardrobeState.q = ''; input.value = ''; refresh(); }
+      });
+    },
+  };
+}
+
+function viewFolder(folderId, rawType) {
+  const f = FOLDER[folderId];
+  if (!f) return viewNotFound('Esta carpeta no existe.');
+  const type = rawType ? decodeURIComponent(rawType) : null;
+  const all = folderGarments(f);
+  const types = typesIn(all);
+  const action = addAction(newGarmentHref(f.category, type || (types.length === 1 && f.types ? types[0] : '')), 'Prenda');
+
+  // Subcarpeta: solo un tipo.
+  if (type) {
+    const gs = all.filter((g) => g.type === type);
+    const html = gs.length
+      ? `<p class="lead">${plural(gs.length, 'prenda', 'prendas')}</p><div class="g-grid">${gs.map(garmentCard).join('')}</div>`
+      : emptyState({ title: 'Subcarpeta vacía', text: 'No te queda ninguna prenda activa de este tipo.', href: `#/ropa/${f.id}`, label: `Volver a ${f.label}` });
+    return { title: typePlural(type), tab: 'wardrobe', back: `#/ropa/${f.id}`, html, action };
+  }
+
+  if (!all.length) {
+    return {
+      title: f.label, tab: 'wardrobe', back: '#/ropa', action,
+      html: emptyState({ title: 'Carpeta vacía', text: 'No tienes prendas activas aquí.', href: newGarmentHref(f.category), label: 'Añadir prenda' }),
+    };
+  }
+
+  const hasSubs = types.length > 1;
+  let body;
+  if (hasSubs && folderMode === 'sub') {
+    body = `<div class="o-grid">${types.map((t) => folderCard(`#/ropa/${f.id}/${encodeURIComponent(t)}`, typePlural(t), all.filter((g) => g.type === t))).join('')}</div>`;
+  } else if (hasSubs) {
+    body = types.map((t) => {
+      const gs = all.filter((g) => g.type === t);
+      return `<section class="section" style="margin-top:18px">
+        <div class="section-head"><h2>${esc(typePlural(t))} <span class="count">${gs.length}</span></h2></div>
+        <div class="g-grid">${gs.map(garmentCard).join('')}</div>
+      </section>`;
+    }).join('');
+  } else {
+    body = `<div class="g-grid">${all.map(garmentCard).join('')}</div>`;
+  }
+
+  const toggle = hasSubs ? `<div class="segmented" role="group" aria-label="Cómo ver la carpeta">
+      <button type="button" data-mode="sub" aria-pressed="${folderMode === 'sub'}">Subcarpetas</button>
+      <button type="button" data-mode="all" aria-pressed="${folderMode === 'all'}">Todo</button>
+    </div>` : '';
+
+  return {
+    title: f.label, tab: 'wardrobe', back: '#/ropa', action,
+    html: `<p class="lead">${plural(all.length, 'prenda', 'prendas')}</p>${toggle}${body}`,
+    bind() {
+      $('.segmented')?.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-mode]');
+        if (!b || b.dataset.mode === folderMode) return;
+        folderMode = b.dataset.mode;
+        try { localStorage.setItem('mycloset.folderMode', folderMode); } catch (_) { /* sin almacenamiento */ }
+        render();
       });
     },
   };
@@ -455,7 +567,7 @@ function viewGarment(id) {
     </div>`;
 
   return {
-    title: 'Prenda', tab: 'wardrobe', back: g.archived ? '#/archivo' : '#/ropa', html,
+    title: 'Prenda', tab: 'wardrobe', back: g.archived ? '#/archivo' : `#/ropa/${folderOf(g).id}`, html,
     bind() { $('#toggle-archive').addEventListener('click', () => setArchived(g, !g.archived)); },
   };
 }
@@ -521,13 +633,17 @@ async function processImage(file) {
   }
 }
 
-function viewGarmentForm(id) {
+function viewGarmentForm(id, prefill = {}) {
   const existing = id ? S.garments.get(id) : null;
   if (id && !existing) return viewNotFound('Esta prenda no existe.');
+  // Al crear desde una carpeta, llega con categoría (y tipo) ya elegidos.
+  const preCat = CAT[prefill.cat] ? prefill.cat : '';
+  const preType = preCat && CAT[preCat].types.includes(prefill.tipo) ? prefill.tipo : '';
+  const newBack = preCat ? `#/ropa/${folderOf({ category: preCat, type: preType || CAT[preCat].types[0] }).id}` : '#/ropa';
   const f = {
     name: existing?.name || '',
-    category: existing?.category || '',
-    type: existing?.type || '',
+    category: existing?.category || preCat,
+    type: existing?.type || preType,
     color: existing?.color || '',
     image: existing?.imageId ? S.images.get(existing.imageId) || null : null,
     imageChanged: false,
@@ -584,7 +700,7 @@ function viewGarmentForm(id) {
       <div class="btn-stack">
         <button type="submit" class="btn btn-primary btn-block">${existing ? 'Guardar cambios' : 'Guardar prenda'}</button>
         ${existing ? '' : '<button type="button" class="btn btn-block" id="save-another">Guardar y añadir otra</button>'}
-        <a class="btn btn-block" href="${existing ? `#/prenda/${id}` : '#/ropa'}" id="cancel">Cancelar</a>
+        <a class="btn btn-block" href="${existing ? `#/prenda/${id}` : newBack}" id="cancel">Cancelar</a>
       </div>
     </form>`;
 
@@ -596,7 +712,7 @@ function viewGarmentForm(id) {
   return {
     title: existing ? 'Editar prenda' : 'Nueva prenda',
     tab: 'wardrobe', tabs: false,
-    back: existing ? `#/prenda/${id}` : '#/ropa',
+    back: existing ? `#/prenda/${id}` : newBack,
     html,
     bind() {
       const form = $('#g-form');
@@ -1065,8 +1181,9 @@ function viewNotFound(msg = 'Esta página no existe.') {
 const routes = [
   [/^#\/?$/, viewToday],
   [/^#\/ropa$/, viewWardrobe],
+  [/^#\/ropa\/([\w-]+)(?:\/([^/]+))?$/, viewFolder],
   [/^#\/archivo$/, viewArchive],
-  [/^#\/prenda\/nueva$/, () => viewGarmentForm(null)],
+  [/^#\/prenda\/nueva(?:\?(.*))?$/, (qs) => viewGarmentForm(null, Object.fromEntries(new URLSearchParams(qs || '')))],
   [/^#\/prenda\/([\w-]+)\/editar$/, viewGarmentForm],
   [/^#\/prenda\/([\w-]+)\/combina$/, viewCompatEditor],
   [/^#\/prenda\/([\w-]+)$/, viewGarment],

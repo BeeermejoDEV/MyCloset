@@ -185,8 +185,23 @@ img { display: block; max-width: 100%; }
 .o-items { margin: 3px 4px 0; font-size: 13px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .o-card .badge { margin: 8px 4px 0; align-self: flex-start; }
 
+.folder-card .o-name { font-size: 16px; }
+.o-name .count { color: var(--muted); font-weight: 500; }
+
+/* Subcarpetas / Todo */
+.segmented {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; margin-bottom: 16px;
+  border-radius: 12px; background: var(--surface-2);
+}
+.segmented button {
+  min-height: 40px; border: 0; border-radius: 9px; background: transparent; color: var(--muted);
+  font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+}
+.segmented button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+
 .collage { position: relative; display: grid; gap: 3px; aspect-ratio: 1; border-radius: 10px; overflow: hidden; background: var(--surface-2); }
 .collage .thumb { aspect-ratio: auto; border-radius: 0; min-height: 0; }
+.collage .thumb img { object-fit: cover; }
 .collage.n1 { grid-template: 1fr / 1fr; }
 .collage.n2 { grid-template: 1fr / 1fr 1fr; }
 .collage.n3 { grid-template: 1fr 1fr / 1fr 1fr; }
