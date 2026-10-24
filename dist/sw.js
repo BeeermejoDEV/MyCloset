@@ -1,7 +1,7 @@
 // Service worker: guarda la app en el móvil para que abra sin conexión.
 // Estrategia: primero la red (así las actualizaciones llegan solas) y, si no hay red, la copia guardada.
 // Los datos del armario no pasan por aquí: viven en IndexedDB.
-const CACHE = 'mycloset-v7';
+const CACHE = 'mycloset-v8';
 const SHELL = ['./', 'index.html', 'app.js', 'styles.css', 'manifest.webmanifest', 'icon.svg', 'apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {

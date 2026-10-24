@@ -395,3 +395,10 @@ body.no-tabs .toast { bottom: calc(env(safe-area-inset-bottom) + 90px); }
 .wash-item { display: flex; align-items: center; gap: 12px; padding: 6px 12px 6px 6px; border-radius: 12px; background: var(--surface-2); cursor: pointer; }
 .wash-item span { flex: 1; font-weight: 600; font-size: 15px; }
 .wash-item input { width: 22px; height: 22px; accent-color: var(--accent); flex: none; }
+
+/* ---------- Situaciones ---------- */
+.sit-card .o-name { font-size: 16px; }
+.sit-empty { display: grid; place-items: center; color: var(--muted); }
+.sit-empty svg { width: 34%; height: 34%; stroke-width: 1.3; }
+.sit-card.is-empty { box-shadow: none; background: transparent; border-style: dashed; }
+.sit-card.is-empty .o-name { color: var(--muted); }

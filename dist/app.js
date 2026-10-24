@@ -298,7 +298,7 @@ function createPicker({ candidates, selected, extra = [], initialFilter = 'all',
     };
     input.addEventListener('input', () => { st.q = input.value; refresh(); });
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });
-    $('.chips', root).addEventListener('click', (e) => {
+    $('.picker .chips', root).addEventListener('click', (e) => {
       const b = e.target.closest('[data-filter]');
       if (b) setFilter(b.dataset.filter);
     });
@@ -321,6 +321,56 @@ function createPicker({ candidates, selected, extra = [], initialFilter = 'all',
    ========================================================= */
 
 /* ---------- Qué me pongo ---------- */
+// Un conjunto puede servir para varias situaciones (o ninguna: entonces solo sale en «Todos»).
+const SITUATIONS = [
+  { id: 'cita', label: 'Cita' },
+  { id: 'amigos', label: 'Quedada con amigos' },
+  { id: 'noche', label: 'Salida de noche' },
+  { id: 'biblioteca', label: 'Biblioteca' },
+  { id: 'trabajo', label: 'Trabajo' },
+  { id: 'recados', label: 'Recados' },
+  { id: 'aperitivo', label: 'Aperitivo' },
+];
+const SITUATION = Object.fromEntries(SITUATIONS.map((x) => [x.id, x]));
+const situationsOf = (o) => (o.situations || []).filter((x) => SITUATION[x]);
+const byRecent = (a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt));
+
+// Card de situación: de ejemplo, el conjunto disponible que se tocó más recientemente.
+function situationCard(id, label, outs) {
+  const ex = [...outs].sort(byRecent)[0];
+  return `<a class="o-card sit-card ${outs.length ? '' : 'is-empty'}" href="#/situacion/${id}">
+    ${ex ? collage(ex) : `<div class="collage n1 sit-empty" aria-hidden="true">${ICON.layers}</div>`}
+    <span class="o-name">${esc(label)}</span>
+    <span class="o-items">${outs.length ? plural(outs.length, 'conjunto', 'conjuntos') : 'Sin conjuntos aún'}</span>
+  </a>`;
+}
+
+function viewSituation(id) {
+  const sit = id === 'todos' ? { id, label: 'Todos' } : SITUATION[id];
+  if (!sit) return viewNotFound('Esta situación no existe.');
+  const inSit = (o) => id === 'todos' || situationsOf(o).includes(id);
+  const all = [...S.outfits.values()].filter(inSit);
+  const avail = all.filter(isAvailable).sort(byName);
+  const waiting = all.filter((o) => !hasArchived(o) && toWash(o).length).length;
+  const createHref = id === 'todos' ? '#/conjunto/nuevo' : `#/conjunto/nuevo?situacion=${id}`;
+  const html = avail.length
+    ? `${waiting ? `<p class="lead">${waiting === 1 ? '1 conjunto espera' : `${waiting} conjuntos esperan`} a la colada.</p>` : ''}
+       <div class="o-grid">${avail.map(outfitCard).join('')}</div>`
+    : emptyState({
+      icon: waiting ? ICON.wash : ICON.layers,
+      title: waiting ? 'Todo está para lavar' : 'Sin conjuntos todavía',
+      text: waiting
+        ? 'Los conjuntos de esta situación llevan alguna prenda para lavar. Cuando esté limpia, vuelven a aparecer.'
+        : `Crea un conjunto y márcalo para «${esc(sit.label)}». Un mismo conjunto puede servir para varias situaciones.`,
+      href: waiting ? '#/cesto' : createHref,
+      label: waiting ? 'Ver lo que hay para lavar' : 'Crear conjunto',
+    });
+  return {
+    title: sit.label, tab: 'today', back: '#/', html,
+    action: activeGarments().length >= 2 ? addAction(createHref, 'Conjunto') : '',
+  };
+}
+
 function viewToday() {
   const all = [...S.outfits.values()];
   const avail = all.filter(isAvailable).sort(byName);
@@ -343,7 +393,10 @@ function viewToday() {
       : emptyState({ icon: ICON.layers, title: 'Ningún conjunto disponible', text: 'Todos tus conjuntos llevan alguna prenda archivada. Restaura esa prenda o crea un conjunto nuevo.', href: '#/conjuntos', label: 'Ver conjuntos guardados' });
   } else {
     html = `<p class="lead">${avail.length === 1 ? 'Tienes 1 conjunto listo para ponerte.' : `Tienes ${avail.length} conjuntos listos para ponerte.`}${waiting ? ` ${waiting === 1 ? '1 espera' : `${waiting} esperan`} a la colada.` : ''}</p>
-      <div class="o-grid">${avail.map(outfitCard).join('')}</div>`;
+      <div class="o-grid">
+        ${situationCard('todos', 'Todos', avail)}
+        ${SITUATIONS.map((x) => situationCard(x.id, x.label, avail.filter((o) => situationsOf(o).includes(x.id)))).join('')}
+      </div>`;
   }
   const wash = laundryGarments();
   if (wash.length) {
@@ -1079,7 +1132,7 @@ function viewOutfit(id) {
   const html = `
     ${collage(o, 'collage-lg')}
     <h2 class="detail-title">${esc(o.name)}</h2>
-    <p class="meta">${plural(gs.length, 'prenda', 'prendas')}</p>
+    <p class="meta">${plural(gs.length, 'prenda', 'prendas')}${situationsOf(o).length ? ` · ${situationsOf(o).map((x) => esc(SITUATION[x].label)).join(', ')}` : ''}</p>
     ${archived.length ? `<div class="notice"><strong>Contiene ropa archivada</strong>${archived.map((g) => `«${esc(g.name)}»`).join(', ')}. Por eso no aparece en «Qué me pongo» hasta que la restaures.</div>` : ''}
     ${!archived.length && dirty.length ? `<div class="notice notice-wash"><strong>Para lavar</strong>${dirty.map((g) => `«${esc(g.name)}»`).join(', ')}. No sale en «Qué me pongo» hasta que ${dirty.length === 1 ? 'esté limpia' : 'estén limpias'}.</div>` : ''}
     <section class="section">
@@ -1120,14 +1173,15 @@ function viewOutfit(id) {
   };
 }
 
-function viewOutfitEditor(id, fromId) {
+function viewOutfitEditor(id, fromId, preSit) {
   const existing = id ? S.outfits.get(id) : null;
   if (id && !existing) return viewNotFound('Este conjunto no existe.');
   const ref = fromId ? S.garments.get(fromId) : null;
   const candidates = activeGarments();
   const selected = new Set(existing ? existing.garmentIds : (ref && !ref.archived ? [ref.id] : []));
-  const backHref = existing ? `#/conjunto/${id}` : (ref ? `#/prenda/${ref.id}` : '#/conjuntos');
+  const backHref = existing ? `#/conjunto/${id}` : (ref ? `#/prenda/${ref.id}` : SITUATION[preSit] ? `#/situacion/${preSit}` : '#/conjuntos');
   let name = existing?.name || '';
+  const sits = new Set(existing ? situationsOf(existing) : (SITUATION[preSit] ? [preSit] : []));
 
   if (!existing && candidates.length < 2) {
     return {
@@ -1165,6 +1219,12 @@ function viewOutfitEditor(id, fromId) {
       <span>Nombre del conjunto</span>
       <input type="text" id="o-name" value="${esc(name)}" placeholder="Ej.: Beige con sudadera negra" maxlength="80" autocomplete="off" autocapitalize="sentences" enterkeyhint="done">
     </label>
+    <div class="field" style="margin-top:16px">
+      <span>Para qué situaciones <span class="opt">(opcional)</span></span>
+      <div class="chips sit-chips" role="group" aria-label="Situaciones">
+        ${SITUATIONS.map((x) => `<button type="button" class="chip" data-sit="${x.id}" aria-pressed="${sits.has(x.id)}">${esc(x.label)}</button>`).join('')}
+      </div>
+    </div>
     <div class="summary" id="summary" aria-live="polite">${summaryHTML()}</div>
     <p class="error form-error" id="o-error" role="alert" style="margin-bottom:14px"></p>
     ${picker.html}`;
@@ -1180,6 +1240,13 @@ function viewOutfitEditor(id, fromId) {
       const nameInput = $('#o-name');
       nameInput.addEventListener('input', () => { name = nameInput.value; dirty = true; nameInput.setAttribute('aria-invalid', 'false'); });
       nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); nameInput.blur(); } });
+      $('.sit-chips').addEventListener('click', (e) => {
+        const b = e.target.closest('[data-sit]');
+        if (!b) return;
+        if (sits.has(b.dataset.sit)) sits.delete(b.dataset.sit); else sits.add(b.dataset.sit);
+        b.setAttribute('aria-pressed', String(sits.has(b.dataset.sit)));
+        dirty = true;
+      });
       $('#summary').addEventListener('click', (e) => {
         const b = e.target.closest('[data-remove]');
         if (!b) return;
@@ -1196,9 +1263,10 @@ function viewOutfitEditor(id, fromId) {
         if (!nm) { err.textContent = 'Ponle un nombre al conjunto.'; nameInput.setAttribute('aria-invalid', 'true'); nameInput.focus(); return; }
         if (ids.length < 2) { err.textContent = 'Un conjunto necesita al menos dos prendas.'; err.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
         const ts = nowISO();
+        const situations = SITUATIONS.map((x) => x.id).filter((x) => sits.has(x));
         const o = existing
-          ? { ...existing, name: nm, garmentIds: ids, updatedAt: ts }
-          : { id: uid(), name: nm, garmentIds: ids, createdAt: ts, updatedAt: ts };
+          ? { ...existing, name: nm, garmentIds: ids, situations, updatedAt: ts }
+          : { id: uid(), name: nm, garmentIds: ids, situations, createdAt: ts, updatedAt: ts };
         try { await write(['outfits'], (s) => s.outfits.put(o)); } catch (e) { err.textContent = saveErrorMessage(e); return; }
         S.outfits.set(o.id, o);
         dirty = false;
@@ -1345,7 +1413,7 @@ function validateBackup(b) {
     if (!isStr(o.name) || !Array.isArray(o.garmentIds) || o.garmentIds.length < 2) fail(`El conjunto «${esc(o.name || o.id)}» está incompleto.`);
     if (new Set(o.garmentIds).size !== o.garmentIds.length) fail(`El conjunto «${esc(o.name)}» repite prendas.`);
     if (!o.garmentIds.every((x) => garments.has(x))) fail(`El conjunto «${esc(o.name)}» apunta a prendas inexistentes.`);
-    outfits.set(o.id, { id: o.id, name: o.name, garmentIds: [...o.garmentIds], createdAt: String(o.createdAt || nowISO()), updatedAt: String(o.updatedAt || nowISO()) });
+    outfits.set(o.id, { id: o.id, name: o.name, garmentIds: [...o.garmentIds], situations: Array.isArray(o.situations) ? o.situations.filter((x) => SITUATION[x]) : [], createdAt: String(o.createdAt || nowISO()), updatedAt: String(o.updatedAt || nowISO()) });
   }
   // Fotos que ninguna prenda usa: no se importan.
   const used = new Set([...garments.values()].map((g) => g.imageId).filter(Boolean));
@@ -1404,7 +1472,8 @@ const routes = [
   [/^#\/prenda\/([\w-]+)\/combina$/, viewCompatEditor],
   [/^#\/prenda\/([\w-]+)$/, viewGarment],
   [/^#\/conjuntos$/, viewOutfits],
-  [/^#\/conjunto\/nuevo(?:\?desde=([\w-]+))?$/, (from) => viewOutfitEditor(null, from)],
+  [/^#\/conjunto\/nuevo(?:\?(.*))?$/, (qs) => { const p = new URLSearchParams(qs || ''); return viewOutfitEditor(null, p.get('desde'), p.get('situacion')); }],
+  [/^#\/situacion\/([\w-]+)$/, viewSituation],
   [/^#\/conjunto\/([\w-]+)\/editar$/, (id) => viewOutfitEditor(id)],
   [/^#\/conjunto\/([\w-]+)$/, viewOutfit],
   [/^#\/ajustes$/, viewSettings],
