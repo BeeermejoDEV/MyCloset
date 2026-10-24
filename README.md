@@ -42,6 +42,7 @@ Este documento distingue las peticiones de David de las decisiones que todavía 
 - Él indicará qué prendas combinan con cuáles.
 - Quiere crear y consultar conjuntos completos para decidir qué ponerse.
 - No quiere IA para reconocer prendas, decidir combinaciones ni generar conjuntos.
+- **Excepción decidida el 24/10/2026:** IA opcional solo para *visualizar* un conjunto ya creado (maniquí con la ropa puesta, Gemini). Ver sección 21.
 - Está haciendo limpia de armario y prevé conservar poca ropa al principio.
 - Quiere construir un fondo de armario poco a poco.
 - Su prioridad inmediata es tener una base ordenada.
@@ -562,3 +563,37 @@ Cada `push` a `main` publica `dist/` automáticamente (`.github/workflows/pages.
 - Usar siempre el **icono**, no Safari: pueden tener almacenes de datos distintos.
 - Exportar copia de vez en cuando (Ajustes → Exportar copia → Guardar en Archivos/iCloud Drive).
 - Actualizar la app = cambiar `dist/`, `commit` y `push`. El móvil coge la versión nueva la siguiente vez que la abra con conexión.
+
+## 21. Looks con IA (opcional)
+
+**Sin API (gratis):** en la ficha de un conjunto, «Subir imagen del look» permite poner a mano una imagen (por ejemplo, un maniquí generado en ChatGPT o AI Studio). Pasa a ser la imagen principal del conjunto y de sus cards (se ve entera, sin recortar); las cards de situación eligen de ejemplo un conjunto con look si lo hay. «Cambiar imagen» / «Quitar look». Se guarda en la copia (`lookImageId`, `lookSource: 'manual' | 'ia'`).
+
+**Con API (de pago, automático):**
+
+Botón «Generar look con IA» en la ficha de un conjunto: crea una imagen de un maniquí con esa ropa usando Gemini (`gemini-nano-banana-2.1`, ~0,034 $ por imagen 1K). La imagen se guarda en el móvil y se usa como portada del conjunto; regenerar sustituye la anterior.
+
+**Cómo funciona y por qué así:** la app (GitHub Pages) no puede guardar secretos. Un Cloudflare Worker (`worker/`) guarda la clave de Gemini como secreto, recibe las fotos del conjunto y devuelve la imagen. El Worker solo acepta peticiones desde la app (`ALLOWED_ORIGINS`) y con la clave de la app (`APP_TOKEN`), para que nadie más gaste tu saldo. La dirección del servicio y `APP_TOKEN` se guardan solo en cada dispositivo (Ajustes) y no van en las copias.
+
+**Privacidad:** al generar, las fotos de las prendas del conjunto se envían a Google. En el plan de pago, Google indica que no las usa para entrenar.
+
+**Probar en local sin gastar:** `node MyCloset/worker/dev.mjs` arranca el Worker con una Gemini simulada (configuración en `worker/.dev.vars`, fuera de Git).
+
+### Pasos de David (una vez)
+
+1. **Clave de Gemini.** En Google AI Studio (aistudio.google.com) → *Get API key* → crear clave en un proyecto nuevo. Activar la **facturación** del proyecto (sin ella no genera imágenes). En Google Cloud → Facturación → *Presupuestos y alertas*, crear un aviso de **5 €**. No pegar la clave en ningún chat ni archivo.
+2. **Cuenta de Cloudflare** gratuita (dash.cloudflare.com).
+3. **Publicar el Worker** desde la terminal, en `MyCloset/worker`:
+   ```bash
+   npx wrangler login
+   npx wrangler deploy
+   npx wrangler secret put GEMINI_API_KEY
+   openssl rand -hex 24
+   npx wrangler secret put APP_TOKEN
+   ```
+   - `wrangler login` abre el navegador para autorizar tu cuenta de Cloudflare.
+   - `deploy` muestra la dirección del servicio: `https://mycloset-look.<tu-subdominio>.workers.dev`.
+   - En `GEMINI_API_KEY` pega la clave de Google (no se ve al escribirla).
+   - `openssl rand -hex 24` genera una clave aleatoria para la app; cópiala y pégala en `APP_TOKEN`. Guárdala en tu gestor de contraseñas.
+4. **Publicar la versión de la app con este botón** (commit + push) — solo con el OK de David.
+5. **En el iPhone:** Ajustes → *Looks con IA* → dirección del servicio + la clave del paso 3 → Guardar.
+6. Abrir un conjunto → *Generar look con IA*.

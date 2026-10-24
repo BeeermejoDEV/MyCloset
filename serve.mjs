@@ -9,14 +9,16 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), 'dist');
 const port = Number(process.env.PORT) || 5190;
-// Por defecto solo escucha en este ordenador; abrirlo a la wifi es opcional.
-const host = process.env.HOST || '127.0.0.1';
+// Por defecto solo escucha en este ordenador (IPv4 e IPv6, para que «localhost» funcione siempre).
+// Con HOST=0.0.0.0 escucha en todas las direcciones, también para otros dispositivos de tu wifi.
+const wifi = process.env.HOST === '0.0.0.0';
+const hosts = wifi ? ['::'] : process.env.HOST ? [process.env.HOST] : ['127.0.0.1', '::1'];
 const types = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.json': 'application/json',
 };
 
-createServer(async (req, res) => {
+async function handle(req, res) {
   const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)).replace(/^(\.\.[/\\])+/, '');
   // Los datos de prueba solo existen en local: no están en dist/ y no se publican.
   const file = path === '/mycloset-prueba.json'
@@ -29,10 +31,13 @@ createServer(async (req, res) => {
   } catch {
     res.writeHead(404).end('No encontrado');
   }
-}).listen(port, host, () => {
+}
+
+hosts.forEach((h, i) => createServer(handle).listen(port, h, () => {
+  if (i) return;
   console.log(`MyCloset en http://localhost:${port}`);
-  if (host !== '0.0.0.0') return;
+  if (!wifi) return;
   for (const nets of Object.values(networkInterfaces())) {
     for (const n of nets || []) if (n.family === 'IPv4' && !n.internal) console.log(`Desde el iPhone (misma wifi): http://${n.address}:${port}`);
   }
-});
+}));

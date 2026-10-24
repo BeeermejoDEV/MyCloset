@@ -51,6 +51,7 @@ const ICON = {
   camera: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
   filter: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>',
   wash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 9h17l-1.7 10.5a1.5 1.5 0 0 1-1.5 1.3H6.7a1.5 1.5 0 0 1-1.5-1.3z"/><path d="M8 9l2.5-5M16 9l-2.5-5M9 13v4M15 13v4M12 13v4"/></svg>',
+  sparkle: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8z"/><path d="M18.5 15l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/></svg>',
   archive: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 4.5h17v4h-17zM5 8.5v11h14v-11M10 12h4"/></svg>',
 };
 
@@ -184,6 +185,8 @@ function selectCard(g, selected) {
 }
 
 function collage(o, cls = '') {
+  const look = o.lookImageId && S.images.get(o.lookImageId);
+  if (look) return `<div class="collage n1 look-cover ${cls}" aria-hidden="true"><div class="thumb"><img src="${look.data}" alt="" loading="lazy" decoding="async"></div></div>`;
   const gs = outfitGarments(o);
   const shown = gs.slice(0, 4);
   return `<div class="collage n${Math.max(1, shown.length)} ${cls}" aria-hidden="true">
@@ -335,9 +338,10 @@ const SITUATION = Object.fromEntries(SITUATIONS.map((x) => [x.id, x]));
 const situationsOf = (o) => (o.situations || []).filter((x) => SITUATION[x]);
 const byRecent = (a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt));
 
-// Card de situación: de ejemplo, el conjunto disponible que se tocó más recientemente.
+// Card de situación: de ejemplo, un conjunto con imagen de look si lo hay; si no, el tocado más recientemente.
+const hasLook = (o) => Boolean(o.lookImageId && S.images.get(o.lookImageId));
 function situationCard(id, label, outs) {
-  const ex = [...outs].sort(byRecent)[0];
+  const ex = [...outs].sort((a, b) => hasLook(b) - hasLook(a) || byRecent(a, b))[0];
   return `<a class="o-card sit-card ${outs.length ? '' : 'is-empty'}" href="#/situacion/${id}">
     ${ex ? collage(ex) : `<div class="collage n1 sit-empty" aria-hidden="true">${ICON.layers}</div>`}
     <span class="o-name">${esc(label)}</span>
@@ -1098,6 +1102,106 @@ function viewLaundry() {
   };
 }
 
+/* ---------- Look con IA (opcional) ---------- */
+// La dirección del servicio y su clave se guardan solo en este dispositivo; no van en las copias.
+const LOOK_KEYS = { url: 'mycloset.lookUrl', token: 'mycloset.lookToken' };
+
+function lookConfig() {
+  try {
+    const url = localStorage.getItem(LOOK_KEYS.url) || '';
+    const token = localStorage.getItem(LOOK_KEYS.token) || '';
+    return url && token ? { url, token } : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function lookEndpoint(raw) {
+  const u = new URL(raw.trim());
+  if (u.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(u.hostname)) throw new Error('La dirección tiene que empezar por https://');
+  u.pathname = u.pathname.replace(/\/+$/, '').replace(/\/look$/, '') + '/look';
+  return u.toString();
+}
+
+// Reduce una foto guardada para enviarla (menos datos y menos coste de subida).
+async function shrinkForUpload(dataURL, max = 768) {
+  const img = await new Promise((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = () => reject(new Error('No se ha podido leer una foto.'));
+    i.src = dataURL;
+  });
+  const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return { mime_type: 'image/jpeg', data: canvas.toDataURL('image/jpeg', 0.85).split(',')[1] };
+}
+
+async function generateLook(o) {
+  const cfg = lookConfig();
+  if (!cfg) throw new Error('Activa los looks con IA en Ajustes.');
+  // Primero las prendas con foto, en el mismo orden que las imágenes que se envían.
+  const gs = outfitGarments(o);
+  const withPhoto = gs.filter((g) => g.imageId && S.images.get(g.imageId)).slice(0, 8);
+  const ordered = [...withPhoto, ...gs.filter((g) => !withPhoto.includes(g))];
+  const images = await Promise.all(withPhoto.map((g) => shrinkForUpload(S.images.get(g.imageId).data)));
+  const items = ordered.map((g) => ({ name: g.name, type: g.type, color: g.color || '', hasImage: withPhoto.includes(g) }));
+
+  let res;
+  try {
+    res = await fetch(cfg.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.token}` },
+      body: JSON.stringify({ items, images }),
+    });
+  } catch (_) {
+    throw new Error('Sin conexión con el servicio de looks. Comprueba internet y la dirección en Ajustes.');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.image?.data) throw new Error(data.error || `El servicio ha respondido con un error (${res.status}).`);
+
+  const dataURL = `data:${data.image.mime_type || 'image/png'};base64,${data.image.data}`;
+  const size = await new Promise((resolve) => {
+    const i = new Image();
+    i.onload = () => resolve({ width: i.naturalWidth, height: i.naturalHeight });
+    i.onerror = () => resolve({ width: 0, height: 0 });
+    i.src = dataURL;
+  });
+  await storeLook(o, { data: dataURL, mimeType: data.image.mime_type || 'image/png', ...size }, 'ia');
+}
+
+// Guarda la imagen como look del conjunto y borra la anterior, en una sola transacción.
+async function storeLook(o, image, source) {
+  const newImg = { id: uid(), ...image };
+  const oldId = o.lookImageId || null;
+  const next = { ...o, lookImageId: newImg.id, lookAt: nowISO(), lookSource: source };
+  await write(['outfits', 'images'], (st) => {
+    st.images.put(newImg);
+    st.outfits.put(next);
+    if (oldId) st.images.delete(oldId);
+  });
+  S.images.set(newImg.id, newImg);
+  if (oldId) S.images.delete(oldId);
+  S.outfits.set(next.id, next);
+}
+
+async function removeLook(o) {
+  if (!o.lookImageId) return;
+  const next = { ...o, lookImageId: null, lookAt: null, lookSource: null };
+  try {
+    await write(['outfits', 'images'], (st) => { st.outfits.put(next); st.images.delete(o.lookImageId); });
+  } catch (e) { toast(saveErrorMessage(e), true); return; }
+  S.images.delete(o.lookImageId);
+  S.outfits.set(next.id, next);
+  toast('Look quitado');
+  render();
+}
+
 /* ---------- Conjuntos ---------- */
 function viewOutfits() {
   const all = [...S.outfits.values()].sort(byName);
@@ -1129,8 +1233,17 @@ function viewOutfit(id) {
     : dirty.length
       ? `<button type="button" class="btn btn-primary" id="o-clean">${ICON.check}${dirty.length === 1 ? 'Ya está limpia' : 'Ya están limpias'}</button>`
       : `<button type="button" class="btn btn-primary" id="o-wear">${ICON.check}Me lo pongo</button>`;
+  const look = o.lookImageId && S.images.get(o.lookImageId);
+  const canLook = Boolean(lookConfig());
   const html = `
-    ${collage(o, 'collage-lg')}
+    <div class="main-photo">
+      ${look
+        ? `<figure class="look"><img src="${look.data}" alt="Foto principal del conjunto «${esc(o.name)}»">${o.lookSource === 'ia' ? '<figcaption>Generado con IA · puede no ser exacto</figcaption>' : ''}</figure>`
+        : collage(o, 'collage-lg')}
+      <label class="photo-pill">${ICON.camera}<span>${look ? 'Cambiar foto' : 'Añadir foto principal'}</span>
+        <input type="file" id="o-look-file" accept="image/*">
+      </label>
+    </div>
     <h2 class="detail-title">${esc(o.name)}</h2>
     <p class="meta">${plural(gs.length, 'prenda', 'prendas')}${situationsOf(o).length ? ` · ${situationsOf(o).map((x) => esc(SITUATION[x].label)).join(', ')}` : ''}</p>
     ${archived.length ? `<div class="notice"><strong>Contiene ropa archivada</strong>${archived.map((g) => `«${esc(g.name)}»`).join(', ')}. Por eso no aparece en «Qué me pongo» hasta que la restaures.</div>` : ''}
@@ -1142,6 +1255,7 @@ function viewOutfit(id) {
     <div class="actions">
       ${wearBtn}
       <a class="btn ${wearBtn ? '' : 'btn-primary'}" href="#/conjunto/${id}/editar">${ICON.edit}Editar conjunto</a>
+      ${canLook ? `<button type="button" class="btn" id="o-look">${ICON.sparkle}${look ? 'Regenerar look con IA' : 'Generar look con IA'}</button>` : ''}
     </div>
     <div class="danger-zone">
       <button type="button" class="btn btn-block btn-ghost-danger" id="o-delete">Eliminar conjunto</button>
@@ -1158,14 +1272,54 @@ function viewOutfit(id) {
           render();
         }
       });
+      $('#o-look')?.addEventListener('click', async (e) => {
+        const btn = e.currentTarget;
+        const withPhoto = gs.filter((g) => g.imageId).length;
+        const ok = await confirmDialog({
+          title: look ? '¿Regenerar el look?' : '¿Generar el look con IA?',
+          body: `Se enviarán las fotos de ${plural(withPhoto, 'prenda', 'prendas')} a Google (Gemini) para crear una imagen de un maniquí con este conjunto. Cuesta unos 0,03 $.${look ? ' Sustituye al look actual.' : ''}`,
+          confirm: look ? 'Regenerar' : 'Generar',
+        });
+        if (!ok) return;
+        btn.disabled = true;
+        btn.textContent = 'Generando… (unos segundos)';
+        try {
+          await generateLook(o);
+          toast('Look listo');
+          render();
+        } catch (err) {
+          toast(err.message || 'No se ha podido generar el look.', true);
+          btn.disabled = false;
+          btn.textContent = look ? 'Regenerar look con IA' : 'Generar look con IA';
+        }
+      });
+      $('#o-look-file').addEventListener('change', async (e) => {
+        const f = e.target.files?.[0];
+        e.target.value = '';
+        if (!f) return;
+        try {
+          await storeLook(o, await processImage(f), 'manual');
+        } catch (err) {
+          toast(err.name === 'QuotaExceededError' ? saveErrorMessage(err) : (err.message || 'No se ha podido guardar la imagen.'), true);
+          return;
+        }
+        toast(look ? 'Foto principal cambiada' : 'Foto principal guardada');
+        render();
+      });
+      $('#o-unlook')?.addEventListener('click', async () => {
+        if (await confirmDialog({ title: '¿Quitar el look?', body: 'Se borra la imagen generada. El conjunto no cambia.', confirm: 'Quitar', danger: true })) removeLook(o);
+      });
       $('#o-clean')?.addEventListener('click', async () => {
         if (await setLaundry(dirty.map((g) => g.id), false)) { toast('Listo para ponértelo otra vez'); render(); }
       });
       $('#o-delete').addEventListener('click', async () => {
         const ok = await confirmDialog({ title: `¿Eliminar «${o.name}»?`, body: 'Se borrará esta selección guardada. Las prendas y sus combinaciones se mantienen.', confirm: 'Eliminar', danger: true });
         if (!ok) return;
-        try { await write(['outfits'], (s) => s.outfits.delete(id)); } catch (e) { toast(saveErrorMessage(e), true); return; }
+        try {
+          await write(['outfits', 'images'], (s) => { s.outfits.delete(id); if (o.lookImageId) s.images.delete(o.lookImageId); });
+        } catch (e) { toast(saveErrorMessage(e), true); return; }
         S.outfits.delete(id);
+        if (o.lookImageId) S.images.delete(o.lookImageId);
         toast('Conjunto eliminado');
         go('#/conjuntos');
       });
@@ -1214,8 +1368,28 @@ function viewOutfitEditor(id, fromId, preSit) {
     onToggle: () => { dirty = true; $('#summary').innerHTML = summaryHTML(); $('#o-error').textContent = ''; },
   });
 
+  // Foto principal: undefined = sin cambios, null = quitarla, objeto = nueva (se guarda al pulsar «Guardar»).
+  const currentLook = existing?.lookImageId ? S.images.get(existing.lookImageId) : null;
+  let newLook;
+  const photoHTML = () => {
+    const shown = newLook === undefined ? currentLook : newLook;
+    return shown
+      ? `<div class="photo-slot has-photo"><img src="${shown.data}" alt="Foto principal"></div>
+         <div class="btn-row">
+           <label class="btn file-label">${ICON.camera}<span>Cambiar</span><input type="file" class="o-photo-input" accept="image/*"></label>
+           <button type="button" class="btn btn-ghost-danger" id="o-photo-remove">Quitar</button>
+         </div>`
+      : `<label class="photo-slot">${ICON.camera}<b>Añadir foto principal</b><span>Por ejemplo, el maniquí con el conjunto puesto</span>
+           <input type="file" class="o-photo-input" accept="image/*"></label>`;
+  };
+
   const html = `
-    <label class="field">
+    <div class="field">
+      <span>Foto principal <span class="opt">(opcional)</span></span>
+      <div id="o-photo">${photoHTML()}</div>
+      <p class="error" id="o-photo-error" role="alert"></p>
+    </div>
+    <label class="field" style="margin-top:16px">
       <span>Nombre del conjunto</span>
       <input type="text" id="o-name" value="${esc(name)}" placeholder="Ej.: Beige con sudadera negra" maxlength="80" autocomplete="off" autocapitalize="sentences" enterkeyhint="done">
     </label>
@@ -1225,6 +1399,7 @@ function viewOutfitEditor(id, fromId, preSit) {
         ${SITUATIONS.map((x) => `<button type="button" class="chip" data-sit="${x.id}" aria-pressed="${sits.has(x.id)}">${esc(x.label)}</button>`).join('')}
       </div>
     </div>
+    <h3 class="step-title">Prendas del conjunto</h3>
     <div class="summary" id="summary" aria-live="polite">${summaryHTML()}</div>
     <p class="error form-error" id="o-error" role="alert" style="margin-bottom:14px"></p>
     ${picker.html}`;
@@ -1240,6 +1415,22 @@ function viewOutfitEditor(id, fromId, preSit) {
       const nameInput = $('#o-name');
       nameInput.addEventListener('input', () => { name = nameInput.value; dirty = true; nameInput.setAttribute('aria-invalid', 'false'); });
       nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); nameInput.blur(); } });
+      const photoBox = $('#o-photo');
+      photoBox.addEventListener('change', async (e) => {
+        const input = e.target.closest('.o-photo-input');
+        const f = input?.files?.[0];
+        if (!f) return;
+        input.value = '';
+        $('#o-photo-error').textContent = '';
+        try { newLook = await processImage(f); dirty = true; } catch (x) { $('#o-photo-error').textContent = x.message; }
+        photoBox.innerHTML = photoHTML();
+      });
+      photoBox.addEventListener('click', (e) => {
+        if (!e.target.closest('#o-photo-remove')) return;
+        newLook = null;
+        dirty = true;
+        photoBox.innerHTML = photoHTML();
+      });
       $('.sit-chips').addEventListener('click', (e) => {
         const b = e.target.closest('[data-sit]');
         if (!b) return;
@@ -1267,7 +1458,23 @@ function viewOutfitEditor(id, fromId, preSit) {
         const o = existing
           ? { ...existing, name: nm, garmentIds: ids, situations, updatedAt: ts }
           : { id: uid(), name: nm, garmentIds: ids, situations, createdAt: ts, updatedAt: ts };
-        try { await write(['outfits'], (s) => s.outfits.put(o)); } catch (e) { err.textContent = saveErrorMessage(e); return; }
+        // Foto principal: todo en la misma transacción que el conjunto.
+        const oldLookId = o.lookImageId || null;
+        let lookImg = null;
+        if (newLook !== undefined) {
+          if (newLook) { lookImg = { id: uid(), ...newLook }; Object.assign(o, { lookImageId: lookImg.id, lookAt: ts, lookSource: 'manual' }); }
+          else Object.assign(o, { lookImageId: null, lookAt: null, lookSource: null });
+        }
+        const dropOld = newLook !== undefined && oldLookId;
+        try {
+          await write(['outfits', 'images'], (s) => {
+            if (lookImg) s.images.put(lookImg);
+            if (dropOld) s.images.delete(oldLookId);
+            s.outfits.put(o);
+          });
+        } catch (e) { err.textContent = saveErrorMessage(e); return; }
+        if (lookImg) S.images.set(lookImg.id, lookImg);
+        if (dropOld) S.images.delete(oldLookId);
         S.outfits.set(o.id, o);
         dirty = false;
         toast(existing ? 'Conjunto actualizado' : 'Conjunto guardado');
@@ -1301,6 +1508,22 @@ function viewSettings() {
       <p class="error" id="import-error" role="alert" style="margin-top:10px"></p>
     </section>
 
+    <section class="section card">
+      <h2>Looks con IA <span class="opt">(opcional)</span></h2>
+      <p>Genera una imagen de un maniquí con cada conjunto usando tu servicio de Gemini. La dirección y la clave se guardan solo en este dispositivo y no van en las copias.</p>
+      <form id="look-form" class="form" style="gap:12px" autocomplete="off">
+        <label class="field"><span>Dirección del servicio</span>
+          <input type="text" id="look-url" inputmode="url" placeholder="https://mycloset-look.….workers.dev" value="${esc(lookConfig()?.url || '')}" autocapitalize="off" spellcheck="false"></label>
+        <label class="field"><span>Clave de la app</span>
+          <input type="password" id="look-token" placeholder="${lookConfig() ? 'Guardada · escribe otra para cambiarla' : 'La clave que pusiste como APP_TOKEN'}" autocomplete="off"></label>
+        <p class="error" id="look-error" role="alert"></p>
+        <div class="btn-row">
+          <button type="submit" class="btn btn-primary">Guardar</button>
+          <button type="button" class="btn" id="look-off" ${lookConfig() ? '' : 'disabled'}>Desactivar</button>
+        </div>
+      </form>
+    </section>
+
     <section class="section card" id="demo-card" hidden>
       <h2>Datos de prueba</h2>
       <p>Carga 15 prendas y 7 conjuntos de ejemplo para ver cómo funciona. <b>Reemplaza</b> el armario actual: no lo uses si ya tienes tu ropa real.</p>
@@ -1315,6 +1538,26 @@ function viewSettings() {
     title: 'Ajustes', tab: 'settings', html,
     bind() {
       $('#export').addEventListener('click', exportBackup);
+      $('#look-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const err = $('#look-error');
+        err.textContent = '';
+        let url;
+        try { url = lookEndpoint($('#look-url').value); } catch (x) { err.textContent = x.message.startsWith('La dirección') ? x.message : 'Esa dirección no es válida.'; return; }
+        const token = $('#look-token').value.trim() || lookConfig()?.token || '';
+        if (!token) { err.textContent = 'Escribe la clave de la app.'; return; }
+        try {
+          localStorage.setItem(LOOK_KEYS.url, url);
+          localStorage.setItem(LOOK_KEYS.token, token);
+        } catch (_) { err.textContent = 'Este navegador no deja guardar la configuración.'; return; }
+        toast('Looks con IA activados');
+        render();
+      });
+      $('#look-off').addEventListener('click', () => {
+        try { localStorage.removeItem(LOOK_KEYS.url); localStorage.removeItem(LOOK_KEYS.token); } catch (_) { /* nada que borrar */ }
+        toast('Looks con IA desactivados');
+        render();
+      });
       $('#import').addEventListener('change', async (e) => {
         const file = e.target.files?.[0];
         e.target.value = '';
@@ -1413,10 +1656,10 @@ function validateBackup(b) {
     if (!isStr(o.name) || !Array.isArray(o.garmentIds) || o.garmentIds.length < 2) fail(`El conjunto «${esc(o.name || o.id)}» está incompleto.`);
     if (new Set(o.garmentIds).size !== o.garmentIds.length) fail(`El conjunto «${esc(o.name)}» repite prendas.`);
     if (!o.garmentIds.every((x) => garments.has(x))) fail(`El conjunto «${esc(o.name)}» apunta a prendas inexistentes.`);
-    outfits.set(o.id, { id: o.id, name: o.name, garmentIds: [...o.garmentIds], situations: Array.isArray(o.situations) ? o.situations.filter((x) => SITUATION[x]) : [], createdAt: String(o.createdAt || nowISO()), updatedAt: String(o.updatedAt || nowISO()) });
+    outfits.set(o.id, { id: o.id, name: o.name, garmentIds: [...o.garmentIds], situations: Array.isArray(o.situations) ? o.situations.filter((x) => SITUATION[x]) : [], lookImageId: o.lookImageId && images.has(o.lookImageId) ? o.lookImageId : null, lookAt: o.lookImageId && images.has(o.lookImageId) ? String(o.lookAt || nowISO()) : null, lookSource: o.lookImageId && images.has(o.lookImageId) && ['ia', 'manual'].includes(o.lookSource) ? o.lookSource : null, createdAt: String(o.createdAt || nowISO()), updatedAt: String(o.updatedAt || nowISO()) });
   }
-  // Fotos que ninguna prenda usa: no se importan.
-  const used = new Set([...garments.values()].map((g) => g.imageId).filter(Boolean));
+  // Fotos que ninguna prenda ni ningún look usa: no se importan.
+  const used = new Set([...garments.values()].map((g) => g.imageId).concat([...outfits.values()].map((o) => o.lookImageId)).filter(Boolean));
   for (const k of images.keys()) if (!used.has(k)) images.delete(k);
   return { garments, images, compat, outfits };
 }

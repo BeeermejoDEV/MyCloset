@@ -1,0 +1,14 @@
+# Servicio «look con IA» de MyCloset. Se publica con: npx wrangler deploy (desde esta carpeta)
+name = "mycloset-look"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+# Webs que pueden usar el servicio (la app publicada y la versión local).
+ALLOWED_ORIGINS = "https://beeermejodev.github.io,http://localhost:5190,http://127.0.0.1:5190"
+# Modelo de imagen de Gemini (Nano Banana 2.1, ~0,034 $ por imagen 1K).
+MODEL = "gemini-nano-banana-2.1"
+
+# Los secretos NO van aquí. Se guardan con:
+#   npx wrangler secret put GEMINI_API_KEY
+#   npx wrangler secret put APP_TOKEN
